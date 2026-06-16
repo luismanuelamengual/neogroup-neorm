@@ -595,6 +595,98 @@ describe('SQLite — CRUD completo', () => {
       })
     })
 
+    // ── COUNT ───────────────────────────────────────────────────────────────
+
+    describe('COUNT', () => {
+      it('cuenta todos los registros', async () => {
+        const total = await source.table('users').count()
+
+        expect(total).toBe(3)
+      })
+
+      it('cuenta respetando las condiciones WHERE', async () => {
+        const total = await source.table('users').where('active', 1).count()
+
+        expect(total).toBe(2)
+      })
+
+      it('retorna 0 cuando no hay coincidencias', async () => {
+        const total = await source.table('users').where('name', 'Zoe').count()
+
+        expect(total).toBe(0)
+      })
+
+      it('cuenta valores distintos con distinct()', async () => {
+        // Alice y Bob comparten active=1, Charlie active=0 → 2 valores distintos
+        const total = await source.table('users').distinct().count('active')
+
+        expect(total).toBe(2)
+      })
+
+      it('cuenta los grupos cuando hay GROUP BY', async () => {
+        const total = await source.table('users').groupBy('active').count()
+
+        expect(total).toBe(2)
+      })
+    })
+
+    // ── PAGINATE ────────────────────────────────────────────────────────────
+
+    describe('PAGINATE', () => {
+      it('retorna la primera página con metadata', async () => {
+        const page = await source.table('users').orderBy('age').paginate(2, 1)
+
+        expect(page.total).toBe(3)
+        expect(page.perPage).toBe(2)
+        expect(page.currentPage).toBe(1)
+        expect(page.lastPage).toBe(2)
+        expect(page.from).toBe(1)
+        expect(page.to).toBe(2)
+        expect(page.data).toHaveLength(2)
+        // ordenados por age: Bob(25), Alice(30)
+        expect(page.data.map((u: any) => u.name)).toEqual(['Bob', 'Alice'])
+      })
+
+      it('retorna la última página parcial', async () => {
+        const page = await source.table('users').orderBy('age').paginate(2, 2)
+
+        expect(page.currentPage).toBe(2)
+        expect(page.lastPage).toBe(2)
+        expect(page.from).toBe(3)
+        expect(page.to).toBe(3)
+        expect(page.data).toHaveLength(1)
+        expect(page.data[0].name).toBe('Charlie')
+      })
+
+      it('respeta las condiciones WHERE en total y datos', async () => {
+        const page = await source.table('users').where('active', 1).orderBy('age').paginate(1, 1)
+
+        expect(page.total).toBe(2)
+        expect(page.lastPage).toBe(2)
+        expect(page.data).toHaveLength(1)
+        expect(page.data[0].name).toBe('Bob')
+      })
+
+      it('usa 15 por página por defecto', async () => {
+        const page = await source.table('users').paginate()
+
+        expect(page.perPage).toBe(15)
+        expect(page.currentPage).toBe(1)
+        expect(page.lastPage).toBe(1)
+        expect(page.data).toHaveLength(3)
+      })
+
+      it('retorna metadata vacía cuando no hay registros', async () => {
+        const page = await source.table('users').where('name', 'Zoe').paginate(10, 1)
+
+        expect(page.total).toBe(0)
+        expect(page.lastPage).toBe(1)
+        expect(page.from).toBeNull()
+        expect(page.to).toBeNull()
+        expect(page.data).toHaveLength(0)
+      })
+    })
+
     // ── GROUP BY ────────────────────────────────────────────────────────────
 
     describe('GROUP BY', () => {

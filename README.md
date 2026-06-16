@@ -23,6 +23,8 @@ A lightweight, fluent TypeScript library for interacting with relational databas
   - [Conditional clauses — when](#conditional-clauses--when)
   - [Sorting — ORDER BY](#sorting--order-by)
   - [Pagination — LIMIT & OFFSET](#pagination--limit--offset)
+  - [Counting — count()](#counting--count)
+  - [Paginating — paginate()](#paginating--paginate)
   - [Grouping — GROUP BY & HAVING](#grouping--group-by--having)
   - [Joins](#joins)
   - [Distinct](#distinct)
@@ -411,6 +413,67 @@ await DB.table('users').limit(10).offset(20).get()
 
 // OFFSET only (SQLite emits LIMIT -1 automatically)
 await DB.table('users').offset(5).get()
+```
+
+---
+
+### Counting — count()
+
+`count()` returns the number of records that match the current query as a plain `number`. It honours `where` conditions, joins, group-by and having, while ignoring any `limit` / `offset` / `orderBy`.
+
+```typescript
+// SELECT COUNT(*) AS aggregate FROM users
+const total = await DB.table('users').count()
+
+// SELECT COUNT(*) AS aggregate FROM users WHERE active = 1
+const active = await DB.table('users').where('active', 1).count()
+```
+
+Combine with `distinct()` and a column to count distinct values:
+
+```typescript
+// SELECT COUNT(DISTINCT country) AS aggregate FROM users
+const countries = await DB.table('users').distinct().count('country')
+```
+
+When the query has a `groupBy`, `count()` returns the number of groups.
+
+---
+
+### Paginating — paginate()
+
+`paginate(perPage = 15, page = 1)` runs a `COUNT` for the total plus a windowed `SELECT` for the requested page, and returns both the records and the navigation metadata — modelled after Laravel's length-aware paginator.
+
+```typescript
+// Page 2, 15 records per page
+const result = await DB.table('users').orderBy('name').paginate(15, 2)
+```
+
+The returned object has the shape:
+
+```typescript
+{
+  data: DataSet[]   // records for this page
+  total: number     // total matching records (ignores limit/offset)
+  perPage: number   // records requested per page
+  currentPage: number
+  lastPage: number  // always >= 1
+  from: number | null // 1-based index of the first row, null when empty
+  to: number | null   // 1-based index of the last row, null when empty
+}
+```
+
+`where` conditions and ordering are respected for both the total count and the page query:
+
+```typescript
+const result = await DB.table('users')
+  .where('active', 1)
+  .orderBy('age')
+  .paginate(10, 1)
+
+console.log(result.total)       // e.g. 42
+console.log(result.lastPage)    // e.g. 5
+console.log(result.data.length) // up to 10
 ```
 
 ---
@@ -822,6 +885,25 @@ const adults = await User.where('active', 1)
 ```
 
 The full `where*` / `orWhere*` API, `select()`, `orderBy()`, `orderByDesc()`, `limit()`, `offset()`, `groupBy()`, `distinct()`, and `whereColumn()` are all supported.
+
+**Counting and paginating** work exactly like on `DataTable`, but field names are resolved against the entity's columns and `paginate()` returns hydrated entity instances (loading any `with()` relations):
+
+```typescript
+// Count
+const total = await User.count()                       // number
+const active = await User.where('active', true).count() // number
+
+// Paginate — data is User[]
+const page = await User.where('active', true)
+  .orderBy('name')
+  .with('country')
+  .paginate(15, 2)
+
+console.log(page.total, page.lastPage)
+console.log(page.data)        // User[] (page 2), each with .country loaded
+```
+
+`paginate()` returns the same metadata shape described in [Paginating — paginate()](#paginating--paginate), with `data` typed as `T[]`.
 
 ---
 

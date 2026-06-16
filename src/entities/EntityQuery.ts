@@ -1,4 +1,5 @@
 import { DataTable } from '../database/DataTable'
+import { PaginationResult } from '../database/PaginationResult'
 import { Field, SelectQuery } from '../database/query'
 import { Condition, ConditionGroup } from '../database/query/conditions'
 import { JoinType } from '../database/query/features/HasJoins'
@@ -200,6 +201,26 @@ export class EntityQuery<T> {
     }
 
     return entity
+  }
+
+  public async count(column: Field = '*'): Promise<number> {
+    const resolved = column === '*' ? '*' : this._resolveField(column)
+
+    return this._table.count(resolved)
+  }
+
+  public async paginate(perPage = 15, page = 1): Promise<PaginationResult<T>> {
+    const currentPage = Math.max(page, 1)
+    const total = await this._table.count()
+    const lastPage = Math.max(Math.ceil(total / perPage), 1)
+
+    this._table.setOffset((currentPage - 1) * perPage).setLimit(perPage)
+    // Reuse get() so entities are hydrated and any with() relations are loaded.
+    const data = await this.get()
+    const from = total === 0 ? null : (currentPage - 1) * perPage + 1
+    const to = from === null ? null : from + data.length - 1
+
+    return { data, total, perPage, currentPage, lastPage, from, to }
   }
 
   public async find(id: any): Promise<T | null> {

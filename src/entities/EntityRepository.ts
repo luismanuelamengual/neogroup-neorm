@@ -1,6 +1,7 @@
 import { DataSet } from '../database/DataSet'
 import { DataSource } from '../database/DataSource'
 import { DB } from '../database/DB'
+import { PaginationResult } from '../database/PaginationResult'
 import { Field, InsertQuery } from '../database/query'
 import { Condition, ConditionGroup } from '../database/query/conditions'
 import { OrderByDirection } from '../database/query/features/HasOrderByFields'
@@ -352,6 +353,14 @@ export class EntityRepository<T> {
 
   async first(): Promise<T | null> {
     return this.query().first()
+  }
+
+  async count(column: Field = '*'): Promise<number> {
+    return this.query().count(column)
+  }
+
+  async paginate(perPage = 15, page = 1): Promise<PaginationResult<T>> {
+    return this.query().paginate(perPage, page)
   }
 
   // ── Chainable query builder methods ───────────────────────────────────────

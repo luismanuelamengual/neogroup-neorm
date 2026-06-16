@@ -1,3 +1,4 @@
+import { PaginationResult } from '../database/PaginationResult'
 import { Field } from '../database/query'
 import { Condition, ConditionGroup } from '../database/query/conditions'
 import { OrderByDirection } from '../database/query/features/HasOrderByFields'
@@ -55,6 +56,18 @@ export abstract class BaseEntity {
 
   static async first<T extends BaseEntity>(this: EntityClass<T>): Promise<T | null> {
     return this._repo().first()
+  }
+
+  static async count<T extends BaseEntity>(this: EntityClass<T>, column: Field = '*'): Promise<number> {
+    return this._repo().count(column)
+  }
+
+  static async paginate<T extends BaseEntity>(
+    this: EntityClass<T>,
+    perPage = 15,
+    page = 1
+  ): Promise<PaginationResult<T>> {
+    return this._repo().paginate(perPage, page)
   }
 
   static where<T extends BaseEntity>(this: EntityClass<T>, callback: (group: ConditionGroup) => void): EntityQuery<T>

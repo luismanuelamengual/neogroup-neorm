@@ -411,6 +411,64 @@ describe('Entities (Active Record — BaseEntity)', () => {
     })
   })
 
+  describe('count() y paginate()', () => {
+    beforeEach(async () => {
+      await seedCountries()
+      await seedUsers()
+    })
+
+    it('count() estático cuenta todos los registros', async () => {
+      expect(await UserModel.count()).toBe(3)
+    })
+
+    it('count() respeta las condiciones encadenadas', async () => {
+      expect(await UserModel.where('active', 1).count()).toBe(2)
+    })
+
+    it('count(column) resuelve nombres de campo de la entidad', async () => {
+      // 'countryId' es un campo de la entidad mapeado a la columna countryId
+      expect(await UserModel.query().distinct().count('countryId')).toBe(2)
+    })
+
+    it('paginate() estático retorna entidades hidratadas con metadata', async () => {
+      const page = await UserModel.paginate(2, 1)
+
+      expect(page.total).toBe(3)
+      expect(page.perPage).toBe(2)
+      expect(page.currentPage).toBe(1)
+      expect(page.lastPage).toBe(2)
+      expect(page.data).toHaveLength(2)
+      expect(page.data[0]).toBeInstanceOf(User)
+    })
+
+    it('paginate() encadenado respeta where() y orden', async () => {
+      const page = await UserModel.where('active', 1).orderBy('age').paginate(1, 2)
+
+      expect(page.total).toBe(2)
+      expect(page.lastPage).toBe(2)
+      expect(page.currentPage).toBe(2)
+      expect(page.data).toHaveLength(1)
+      expect(page.data[0].name).toBe('Alice')
+    })
+
+    it('paginate() carga relaciones con with()', async () => {
+      await seedRelated()
+      const page = await UserModel.where('name', 'Alice').with('orders').paginate(10, 1)
+
+      expect(page.total).toBe(1)
+      expect(page.data[0].orders).toHaveLength(2)
+    })
+
+    it('paginate() retorna metadata vacía sin registros', async () => {
+      const page = await UserModel.where('name', 'Zoe').paginate(5, 1)
+
+      expect(page.total).toBe(0)
+      expect(page.from).toBeNull()
+      expect(page.to).toBeNull()
+      expect(page.data).toHaveLength(0)
+    })
+  })
+
   // ─── save() — INSERT ──────────────────────────────────────────────────────
 
   describe('save() — INSERT', () => {
@@ -695,8 +753,7 @@ describe('Entities (Active Record — BaseEntity)', () => {
     it('orWhereHas — combina con OR correctamente', async () => {
       // Charlie no tiene órdenes → no entra por whereHas; Alice sí tiene Widget → entra
       // Charlie entra por where('name', 'Charlie')
-      const users = await UserModel
-        .where('name', 'Charlie')
+      const users = await UserModel.where('name', 'Charlie')
         .orWhereHas('orders', (q) => q.where('product', 'Widget'))
         .orderBy('name')
         .get()
@@ -722,9 +779,7 @@ describe('Entities (Active Record — BaseEntity)', () => {
     })
 
     it('lanza error si la relación no existe', () => {
-      expect(() => UserModel.whereHas('nonexistent')).toThrow(
-        'Relationship "nonexistent" is not defined on users'
-      )
+      expect(() => UserModel.whereHas('nonexistent')).toThrow('Relationship "nonexistent" is not defined on users')
     })
   })
 
