@@ -648,6 +648,102 @@ describe('Entities (Active Record — BaseEntity)', () => {
     })
   })
 
+  // ─── Constrained eager loading — with({ rel: callback }) ────────────────────
+
+  describe('Constrained eager loading — with({ rel: callback })', () => {
+    beforeEach(async () => {
+      await seedCountries()
+      await seedUsers()
+      await seedRelated()
+    })
+
+    it('hasMany: filtra los relacionados con where()', async () => {
+      const users = await UserModel.with({ orders: (q) => q.where('product', 'Widget') }).get()
+      const alice = users.find((u: any) => u.name === 'Alice')
+      const bob = users.find((u: any) => u.name === 'Bob')
+
+      // Alice tiene Widget; Bob tiene Doohickey → no pasa el filtro
+      expect(alice.orders).toHaveLength(1)
+      expect(alice.orders[0].product).toBe('Widget')
+      expect(bob.orders).toHaveLength(0)
+    })
+
+    it('hasMany: filtra con condición numérica', async () => {
+      // Solo órdenes con amount > 10 → Gadget (24.99); Widget (9.99) y Doohickey (4.99) quedan fuera
+      const users = await UserModel.where('name', 'Alice').with({ orders: (q) => q.where('amount', '>', 10) }).get()
+
+      expect(users[0].orders).toHaveLength(1)
+      expect(users[0].orders[0].product).toBe('Gadget')
+    })
+
+    it('hasMany: ordena los relacionados con orderBy()', async () => {
+      const users = await UserModel.where('name', 'Alice').with({ orders: (q) => q.orderByDesc('amount') }).get()
+      const amounts = users[0].orders.map((o: any) => o.amount)
+
+      expect(amounts).toEqual([24.99, 9.99])
+    })
+
+    it('hasMany: limita los relacionados con limit()', async () => {
+      const users = await UserModel.where('name', 'Alice').with({ orders: (q) => q.limit(1) }).get()
+
+      expect(users[0].orders).toHaveLength(1)
+    })
+
+    it('belongsTo: filtra con callback (retorna null si no pasa)', async () => {
+      // Todos los usuarios pertenecen a AR o BR; pedimos solo country con code 'AR'
+      const users = await UserModel.with({ country: (q) => q.where('code', 'AR') }).orderBy('name').get()
+      const alice = users.find((u: any) => u.name === 'Alice')
+      const charlie = users.find((u: any) => u.name === 'Charlie') // pertenece a BR
+
+      expect(alice.country).toBeInstanceOf(Country)
+      expect(alice.country.code).toBe('AR')
+      expect(charlie.country).toBeNull()
+    })
+
+    it('hasManyThrough: filtra los relacionados con callback', async () => {
+      // AR tiene 3 órdenes (Alice: Widget 9.99, Gadget 24.99; Bob: Doohickey 4.99)
+      // Solo las que cuestan más de 10
+      const countries = await CountryModel.where('code', 'AR').with({ orders: (q) => q.where('amount', '>', 10) }).get()
+
+      expect(countries[0].orders).toHaveLength(1)
+      expect(countries[0].orders[0].product).toBe('Gadget')
+    })
+
+    it('múltiples relaciones con distintos callbacks', async () => {
+      const users = await UserModel.where('name', 'Alice')
+        .with({
+          orders: (q) => q.where('product', 'Gadget'),
+          country: (q) => q.where('code', 'AR')
+        })
+        .get()
+
+      expect(users[0].orders).toHaveLength(1)
+      expect(users[0].orders[0].product).toBe('Gadget')
+      expect(users[0].country).toBeInstanceOf(Country)
+    })
+
+    it('mezcla relaciones con y sin callback en llamadas encadenadas', async () => {
+      const users = await UserModel.where('name', 'Alice')
+        .with('profile')
+        .with({ orders: (q) => q.where('product', 'Widget') })
+        .get()
+
+      expect(users[0].profile).toBeInstanceOf(Profile)
+      expect(users[0].orders).toHaveLength(1)
+      expect(users[0].orders[0].product).toBe('Widget')
+    })
+
+    it('dot-notation con constraint en la relación anidada', async () => {
+      // Cargamos orders.user pero solo users con age > 26 (Alice 30; Bob 25 queda fuera)
+      const orders = await OrderModel.with({ 'user': (q) => q.where('age', '>', 26) }).orderBy('product').get()
+      const widget = orders.find((o: any) => o.product === 'Widget') // de Alice (age 30)
+      const doohickey = orders.find((o: any) => o.product === 'Doohickey') // de Bob (age 25)
+
+      expect(widget.user).toBeInstanceOf(User)
+      expect(doohickey.user).toBeNull()
+    })
+  })
+
   // ─── joinRelationship ────────────────────────────────────────────────────
 
   describe('joinRelationship', () => {
