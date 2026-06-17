@@ -6,6 +6,12 @@ import { JoinType } from '../database/query/features/HasJoins'
 import { OrderByDirection } from '../database/query/features/HasOrderByFields'
 import { EntityRepository, Repository } from './EntityRepository'
 
+/** A single eager-load entry: the dot-notation path and an optional constraint callback. */
+export type WithEntry = {
+  path: string
+  callback?: (query: EntityQuery<any>) => void
+}
+
 /**
  * Chainable query builder for Entities. Wraps DataTable and hydrates rows
  * into typed entity instances when a terminal method is called.
@@ -15,7 +21,7 @@ import { EntityRepository, Repository } from './EntityRepository'
 export class EntityQuery<T> {
   private _repository: EntityRepository<T>
   private _table: DataTable
-  private _withs: string[] = []
+  private _withs: WithEntry[] = []
 
   constructor(repository: EntityRepository<T>, table: DataTable) {
     this._repository = repository
@@ -34,10 +40,21 @@ export class EntityQuery<T> {
 
   // ── Eager loading ────────────────────────────────────────────────────────────
 
-  public with(relations: string | string[], ...rest: string[]): this {
-    const toAdd = Array.isArray(relations) ? relations : [relations, ...rest]
-
-    this._withs.push(...toAdd)
+  public with(relations: Record<string, (query: EntityQuery<any>) => void>): this
+  public with(relations: string | string[], ...rest: string[]): this
+  public with(
+    relations: string | string[] | Record<string, (query: EntityQuery<any>) => void>,
+    ...rest: string[]
+  ): this {
+    if (typeof relations === 'string') {
+      this._withs.push({ path: relations }, ...rest.map((r) => ({ path: r })))
+    } else if (Array.isArray(relations)) {
+      this._withs.push(...relations.map((r) => ({ path: r })))
+    } else {
+      for (const [path, callback] of Object.entries(relations)) {
+        this._withs.push({ path, callback })
+      }
+    }
 
     return this
   }
@@ -241,25 +258,29 @@ export class EntityQuery<T> {
 
   // ── Eager-load implementation ────────────────────────────────────────────────
 
-  private async _loadRelations(entities: any[], relations: string[], parentRepo: EntityRepository<any>): Promise<void> {
-    // Group by top-level relation name; accumulate nested paths
-    const groups = new Map<string, string[]>()
+  private async _loadRelations(entities: any[], withs: WithEntry[], parentRepo: EntityRepository<any>): Promise<void> {
+    // Group by top-level relation name; carry along callback and nested paths
+    const groups = new Map<string, { callback?: (query: EntityQuery<any>) => void; nested: WithEntry[] }>()
 
-    for (const path of relations) {
+    for (const { path, callback } of withs) {
       const dot = path.indexOf('.')
       const head = dot === -1 ? path : path.substring(0, dot)
       const tail = dot === -1 ? null : path.substring(dot + 1)
 
       if (!groups.has(head)) {
-        groups.set(head, [])
+        groups.set(head, { nested: [] })
       }
 
+      const group = groups.get(head)!
+
       if (tail) {
-        groups.get(head)!.push(tail)
+        group.nested.push({ path: tail, callback })
+      } else {
+        group.callback = callback
       }
     }
 
-    for (const [head, nested] of groups) {
+    for (const [head, { callback, nested }] of groups) {
       const rel = parentRepo.relationships[head]
 
       if (!rel) {
@@ -277,7 +298,13 @@ export class EntityQuery<T> {
           continue
         }
 
-        relatedItems = await relatedRepo.whereIn(rel.foreignKey, keys).get()
+        const q = relatedRepo.whereIn(rel.foreignKey, keys)
+
+        if (callback) {
+          callback(q)
+        }
+
+        relatedItems = await q.get()
 
         const lookup = new Map<any, any[]>()
 
@@ -303,7 +330,13 @@ export class EntityQuery<T> {
           continue
         }
 
-        relatedItems = await relatedRepo.whereIn(rel.localKey, keys).get()
+        const q = relatedRepo.whereIn(rel.localKey, keys)
+
+        if (callback) {
+          callback(q)
+        }
+
+        relatedItems = await q.get()
 
         const lookup = new Map<any, any>()
 
@@ -342,7 +375,13 @@ export class EntityQuery<T> {
           throughByParent.get(k)!.push(t)
         })
 
-        relatedItems = await relatedRepo.whereIn(rel.foreignKey, throughKeys).get()
+        const q = relatedRepo.whereIn(rel.foreignKey, throughKeys)
+
+        if (callback) {
+          callback(q)
+        }
+
+        relatedItems = await q.get()
 
         const relatedByThrough = new Map<any, any[]>()
 

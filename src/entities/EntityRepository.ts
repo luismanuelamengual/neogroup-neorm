@@ -431,8 +431,10 @@ export class EntityRepository<T> {
     return this.query().select(...fields)
   }
 
-  with(relations: string | string[], ...rest: string[]): EntityQuery<T> {
-    return this.query().with(relations, ...rest)
+  with(relations: Record<string, (query: EntityQuery<T>) => void>): EntityQuery<T>
+  with(relations: string | string[], ...rest: string[]): EntityQuery<T>
+  with(relations: any, ...rest: string[]): EntityQuery<T> {
+    return (this.query() as any).with(relations, ...rest)
   }
 
   when(condition: any, callback: (query: EntityQuery<T>) => void): EntityQuery<T> {

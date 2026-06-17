@@ -155,10 +155,15 @@ export abstract class BaseEntity {
 
   static with<T extends BaseEntity>(
     this: EntityClass<T>,
+    relations: Record<string, (query: EntityQuery<T>) => void>
+  ): EntityQuery<T>
+  static with<T extends BaseEntity>(
+    this: EntityClass<T>,
     relations: string | string[],
     ...rest: string[]
-  ): EntityQuery<T> {
-    return this._repo().with(relations, ...rest)
+  ): EntityQuery<T>
+  static with(this: any, relations: any, ...rest: string[]): EntityQuery<any> {
+    return (this._repo() as any).with(relations, ...rest)
   }
 
   static whereHas<T extends BaseEntity>(
