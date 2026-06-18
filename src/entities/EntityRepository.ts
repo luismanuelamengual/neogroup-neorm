@@ -157,17 +157,27 @@ export class EntityRepository<T> {
     const columnsMap = this.columnsMap
     const castsMap = this.casts
     const cols = fieldNames.length > 0 ? fieldNames : Object.keys(row)
+    // Build a case-insensitive index to handle databases (e.g. PostgreSQL) that
+    // return column names in lowercase regardless of how they were defined.
+    const lowerRow: Record<string, any> = {}
+
+    for (const key of Object.keys(row)) {
+      lowerRow[key.toLowerCase()] = row[key]
+    }
 
     for (const prop of cols) {
       const col = columnsMap[prop] ?? prop
+      const hasExact = col in row
+      const hasLower = col.toLowerCase() in lowerRow
 
-      if (!(col in row)) {
+      if (!hasExact && !hasLower) {
         continue
       }
 
+      const rawValue = hasExact ? row[col] : lowerRow[col.toLowerCase()]
       const cast = castsMap[prop]
 
-      instance[prop] = cast ? applyCast(row[col], cast) : row[col]
+      instance[prop] = cast ? applyCast(rawValue, cast) : rawValue
     }
 
     return instance
