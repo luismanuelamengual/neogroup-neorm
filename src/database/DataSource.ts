@@ -42,6 +42,16 @@ export abstract class DataSource {
     return connection
   }
 
+  public async withConnection<T>(callback: (connection: DataConnection) => Promise<T>): Promise<T> {
+    const connection = await this.getConnection()
+
+    try {
+      return await callback(connection)
+    } finally {
+      await connection.close()
+    }
+  }
+
   public query(sql: string, bindings?: Array<any>): Promise<Array<DataSet>>
   public query(query: Query): Promise<Array<DataSet>>
   public async query(): Promise<Array<DataSet>> {

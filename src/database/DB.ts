@@ -285,6 +285,10 @@ export abstract class DB {
     return this._activeSource.getConnection()
   }
 
+  public static withConnection<T>(callback: (connection: DataConnection) => Promise<T>): Promise<T> {
+    return this._activeSource.withConnection(callback)
+  }
+
   // ── Query / Execute ─────────────────────────────────────────────────────────
 
   public static query(sql: string, bindings?: Array<any>): Promise<Array<DataSet>>
@@ -292,8 +296,12 @@ export abstract class DB {
   public static async query(): Promise<Array<DataSet>> {
     const conn = await this.connection()
 
-    // @ts-ignore
-    return conn.query(...arguments)
+    try {
+      // @ts-ignore
+      return await conn.query(...arguments)
+    } finally {
+      await conn.close()
+    }
   }
 
   public static execute(sql: string, bindings?: Array<any>): Promise<number>
@@ -301,8 +309,12 @@ export abstract class DB {
   public static async execute(): Promise<number> {
     const conn = await this.connection()
 
-    // @ts-ignore
-    return conn.execute(...arguments)
+    try {
+      // @ts-ignore
+      return await conn.execute(...arguments)
+    } finally {
+      await conn.close()
+    }
   }
 
   // ── Transactions ────────────────────────────────────────────────────────────
@@ -320,7 +332,7 @@ export abstract class DB {
   }
 
   public static async executeTransaction(callback: (connection: DataConnection) => Promise<void>): Promise<void> {
-    return (await this.connection()).executeTransaction(callback)
+    return this.withConnection((conn) => conn.executeTransaction(callback))
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────
