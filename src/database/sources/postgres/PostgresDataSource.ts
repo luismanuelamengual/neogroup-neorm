@@ -90,7 +90,11 @@ export class PostgresDataSource extends DataSource {
       port: this.getPort(),
       database: this.getDatabaseName(),
       user: this.getUsername(),
-      password: this.getPassword()
+      password: this.getPassword(),
+      connectionTimeoutMillis: 30000,
+      idleTimeoutMillis: 30000,
+      query_timeout: 60000,
+      keepAlive: true
     }
 
     return new this.lib.Pool(config)
