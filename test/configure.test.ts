@@ -170,6 +170,102 @@ describe('DB.configure() — env var auto-bootstrap', () => {
     })
   })
 
+  // ── DB_URL connection string ─────────────────────────────────────────────────
+
+  describe('DB_URL connection string', () => {
+    it('configura SQLite en memoria con sqlite://:memory:', () => {
+      withEnv({ DB_URL: 'sqlite://:memory:' }, () => {
+        DB['configure']()
+
+        const src = DB.getActiveSource() as SqliteDataSource
+
+        expect(src).toBeInstanceOf(SqliteDataSource)
+        expect(src.getFilename()).toBe(':memory:')
+      })
+    })
+
+    it('configura SQLite con ruta absoluta: sqlite:///path/to/db.sqlite', () => {
+      withEnv({ DB_URL: 'sqlite:///tmp/test.db' }, () => {
+        DB['configure']()
+
+        const src = DB.getActiveSource() as SqliteDataSource
+
+        expect(src).toBeInstanceOf(SqliteDataSource)
+        expect(src.getFilename()).toBe('/tmp/test.db')
+      })
+    })
+
+    it('configura SQLite con ruta relativa: sqlite://relative/path.db', () => {
+      withEnv({ DB_URL: 'sqlite://relative/path.db' }, () => {
+        DB['configure']()
+
+        const src = DB.getActiveSource() as SqliteDataSource
+
+        expect(src).toBeInstanceOf(SqliteDataSource)
+        expect(src.getFilename()).toBe('relative/path.db')
+      })
+    })
+
+    it('DB_URL toma prioridad sobre DB_DRIVER para el source por defecto', () => {
+      withEnv({ DB_URL: 'sqlite://:memory:', DB_DRIVER: 'sqlite', DB_FILE: './should-not-be-used.db' }, () => {
+        DB['configure']()
+
+        const src = DB.getActiveSource() as SqliteDataSource
+
+        expect(src.getFilename()).toBe(':memory:')
+      })
+    })
+
+    it('soporta DB_<NAME>_URL para sources nombrados', () => {
+      withEnv({ DB_DRIVER: 'sqlite', DB_REPORTING_URL: 'sqlite:///reporting.db' }, () => {
+        DB['configure']()
+
+        const active = DB.getActiveSource() as SqliteDataSource
+
+        expect(active.getFilename()).toBe(':memory:')
+
+        const reporting = DB.source('reporting') as SqliteDataSource
+
+        expect(reporting).toBeInstanceOf(SqliteDataSource)
+        expect(reporting.getFilename()).toBe('/reporting.db')
+      })
+    })
+
+    it('DB_<NAME>_URL tiene prioridad sobre DB_<NAME>_DRIVER para el mismo source', () => {
+      withEnv(
+        {
+          DB_URL: 'sqlite://:memory:',
+          DB_REPORTING_URL: 'sqlite:///reporting.db',
+          DB_REPORTING_DRIVER: 'sqlite',
+          DB_REPORTING_FILE: './should-not-be-used.db'
+        },
+        () => {
+          DB['configure']()
+
+          const reporting = DB.source('reporting') as SqliteDataSource
+
+          expect(reporting.getFilename()).toBe('/reporting.db')
+        }
+      )
+    })
+
+    it('lanza error si DB_URL es un string inválido', () => {
+      withEnv({ DB_URL: 'not-a-valid-url' }, () => {
+        expect(() => DB['configure']()).toThrow(/Invalid connection string/)
+      })
+    })
+
+    it('lanza error si el scheme del DB_URL es desconocido', () => {
+      withEnv({ DB_URL: 'oracle://localhost/mydb' }, () => {
+        expect(() => DB['configure']()).toThrow(/Unknown DB driver/)
+      })
+    })
+
+    it('el error de "no source configurado" menciona DB_URL', () => {
+      expect(() => DB['configure']()).toThrow(/DB_URL/)
+    })
+  })
+
   // ── Auto-bootstrap ───────────────────────────────────────────────────────────
 
   describe('auto-bootstrap (implicit configure on first use)', () => {

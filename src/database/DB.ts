@@ -81,7 +81,8 @@ export abstract class DB {
    * Supported variables:
    *
    *   Default source:
-   *     DB_DRIVER     sqlite | postgres | mysql   (required)
+   *     DB_URL        connection string (takes priority over DB_DRIVER and friends)
+   *     DB_DRIVER     sqlite | postgres | mysql   (required if DB_URL is not set)
    *     DB_FILE       path to SQLite file          (sqlite only, default: :memory:)
    *     DB_HOST       database host                (postgres / mysql)
    *     DB_PORT       database port                (postgres / mysql)
@@ -92,11 +93,17 @@ export abstract class DB {
    *     DB_READONLY   readonly mode                (true/false, 1/0, yes/no, on/off)
    *
    *   Named source  (replace <NAME> with the desired source name in upper-case):
-   *     DB_<NAME>_DRIVER, DB_<NAME>_HOST, DB_<NAME>_PORT, DB_<NAME>_NAME,
-   *     DB_<NAME>_USERNAME, DB_<NAME>_PASSWORD, DB_<NAME>_FILE,
+   *     DB_<NAME>_URL, DB_<NAME>_DRIVER, DB_<NAME>_HOST, DB_<NAME>_PORT,
+   *     DB_<NAME>_NAME, DB_<NAME>_USERNAME, DB_<NAME>_PASSWORD, DB_<NAME>_FILE,
    *     DB_<NAME>_DEBUG, DB_<NAME>_READONLY
    *
-   * Example:
+   * Connection string examples:
+   *   DB_URL=sqlite://:memory:
+   *   DB_URL=sqlite:///path/to/file.db
+   *   DB_URL=postgres://admin:secret@localhost:5432/mydb
+   *   DB_URL=mysql://admin:secret@localhost:3306/mydb
+   *
+   * Individual variable examples:
    *   DB_DRIVER=postgres DB_HOST=localhost DB_NAME=app DB_USERNAME=user DB_PASSWORD=pass
    *   DB_REPORTING_DRIVER=sqlite DB_REPORTING_FILE=./reporting.db
    */
@@ -106,17 +113,43 @@ export abstract class DB {
     }
 
     const env = process.env
+
     // 1. Default (unnamed) source — registered first so it becomes active
+    const defaultUrl = env['DB_URL']
     const defaultDriver = env['DB_DRIVER']
 
-    if (defaultDriver) {
+    if (defaultUrl) {
+      const get = (key: string) => env[`DB_${key}`]
+
+      this.register(this._buildSourceFromUrl(defaultUrl, get))
+    } else if (defaultDriver) {
       const get = (key: string) => env[`DB_${key}`]
 
       this.register(this._buildSourceFromEnv(defaultDriver, get))
     }
 
-    // 2. Named sources — DB_<NAME>_DRIVER pattern
-    for (const key of Object.keys(env).sort()) {
+    // 2. Named sources — DB_<NAME>_URL takes priority over DB_<NAME>_DRIVER.
+    // Two-pass: first register all _URL sources, then fill gaps with _DRIVER sources.
+    const registered = new Set<string>()
+    const sortedKeys = Object.keys(env).sort()
+
+    for (const key of sortedKeys) {
+      const match = key.match(/^DB_([A-Z][A-Z0-9_]*)_URL$/)
+
+      if (!match) {
+        continue
+      }
+
+      const name = match[1].toLowerCase()
+
+      registered.add(name)
+      const prefix = `DB_${match[1]}_`
+      const get = (k: string) => env[prefix + k]
+
+      this.register(name, this._buildSourceFromUrl(env[key]!, get))
+    }
+
+    for (const key of sortedKeys) {
       const match = key.match(/^DB_([A-Z][A-Z0-9_]*)_DRIVER$/)
 
       if (!match) {
@@ -124,6 +157,12 @@ export abstract class DB {
       }
 
       const name = match[1].toLowerCase()
+
+      if (registered.has(name)) {
+        continue // _URL already registered for this name
+      }
+
+      registered.add(name)
       const prefix = `DB_${match[1]}_`
       const get = (k: string) => env[prefix + k]
 
@@ -133,10 +172,97 @@ export abstract class DB {
     if (this._sources.size === 0) {
       throw new Error(
         'No data source configured. ' +
-          'Call DB.register() or set the DB_DRIVER environment variable ' +
-          '(e.g. DB_DRIVER=sqlite, DB_DRIVER=postgres, DB_DRIVER=mysql).'
+          'Call DB.register(), set DB_URL (e.g. DB_URL=sqlite://:memory:), ' +
+          'or set the DB_DRIVER environment variable (e.g. DB_DRIVER=sqlite, DB_DRIVER=postgres, DB_DRIVER=mysql).'
       )
     }
+  }
+
+  /**
+   * Builds a DataSource from a connection string URL.
+   *
+   * Supported formats:
+   *   sqlite://:memory:
+   *   sqlite:///absolute/path/to/file.db
+   *   sqlite://relative/path.db
+   *   postgres://user:pass@host:5432/dbname
+   *   postgresql://user:pass@host:5432/dbname
+   *   mysql://user:pass@host:3306/dbname
+   *
+   * @param url  The connection string.
+   * @param get  Optional getter for extra env keys (DEBUG, READONLY, …).
+   */
+  private static _buildSourceFromUrl(url: string, get?: (key: string) => string | undefined): DataSource {
+    // sqlite://:memory: is a common pattern but not a valid URL (colon in hostname).
+    // Normalise it to sqlite:///:memory: which parses cleanly.
+    const normalisedUrl = url.replace(/^(sqlite:\/\/):memory:/i, '$1/:memory:')
+
+    let parsed: URL
+
+    try {
+      parsed = new URL(normalisedUrl)
+    } catch {
+      throw new Error(
+        `Invalid connection string: "${url}". ` +
+          'Must be a valid URL (e.g. postgres://user:pass@host/db, sqlite://:memory:).'
+      )
+    }
+
+    const scheme = parsed.protocol.replace(/:$/, '').toLowerCase()
+
+    // Derive individual connection parameters from the URL components
+    const getField = (key: string): string | undefined => {
+      switch (key) {
+        case 'HOST':
+          return parsed.hostname || undefined
+        case 'PORT':
+          return parsed.port || undefined
+        case 'NAME':
+        case 'DATABASE':
+          return parsed.pathname.replace(/^\//, '') || undefined
+        case 'USERNAME':
+        case 'USER':
+          return parsed.username ? decodeURIComponent(parsed.username) : undefined
+        case 'PASSWORD':
+        case 'PASS':
+          return parsed.password ? decodeURIComponent(parsed.password) : undefined
+        case 'FILE': {
+          // After normalisation:
+          //   sqlite:///:memory:         → hostname="", pathname="/:memory:"
+          //   sqlite:///abs/path/db.db   → hostname="", pathname="/abs/path/db.db"
+          //   sqlite://rel/path/db.db    → hostname="rel", pathname="/path/db.db"
+          const hostname = parsed.hostname
+          const pathname = parsed.pathname
+
+          if (pathname === '/:memory:') {
+            return ':memory:'
+          }
+
+          if (hostname) {
+            // relative path encoded as hostname + rest of pathname
+            return hostname + pathname
+          }
+
+          return pathname || undefined
+        }
+        default:
+          return get?.(key)
+      }
+    }
+
+    const source = this._buildDriverSource(scheme, getField)
+    const debug = get?.('DEBUG')
+    const readonly = get?.('READONLY')
+
+    if (debug !== undefined) {
+      source.setDebugEnabled(this._parseEnvBoolean(debug))
+    }
+
+    if (readonly !== undefined) {
+      source.setReadonly(this._parseEnvBoolean(readonly))
+    }
+
+    return source
   }
 
   private static _buildSourceFromEnv(driver: string, get: (key: string) => string | undefined): DataSource {
