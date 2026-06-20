@@ -39,11 +39,11 @@ export function applyCastForStorage(value: any, type: CastType): any {
     case 'date':
       return value instanceof Date ? value.toISOString() : value
     case 'array':
-      // Serialize to a JSON string for engines that lack native array types
-      // (SQLite, MySQL). On Postgres, columns declared without cast use native
-      // INT[]/TEXT[] and the value never reaches applyCastForStorage — the raw
-      // JS array is passed directly to the driver by buildColumnValue.
-      return Array.isArray(value) ? JSON.stringify(value) : value
+      // No transformation here — the query builder for each engine is
+      // responsible for serializing the array in the correct wire format
+      // (e.g. SqliteQueryBuilder stringifies to JSON, PostgresQueryBuilder
+      // passes the raw JS array so node-pg can produce the {1,2,3} literal).
+      return value
     default:
       return value
   }

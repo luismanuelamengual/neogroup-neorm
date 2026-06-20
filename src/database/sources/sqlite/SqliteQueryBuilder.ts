@@ -10,6 +10,16 @@ export class SqliteQueryBuilder extends DefaultQueryBuilder {
     statement.sql += upper === 'ILIKE' ? 'LIKE' : upper === 'NOT ILIKE' ? 'NOT LIKE' : upper
   }
 
+  protected buildColumnValue(value: any, statement: Statement) {
+    // SQLite has no native array type — serialize JS arrays to JSON strings so
+    // they can be stored in TEXT columns and parsed back on read (applyCast).
+    if (Array.isArray(value)) {
+      this.buildSingleValue(JSON.stringify(value), statement)
+    } else {
+      super.buildColumnValue(value, statement)
+    }
+  }
+
   protected buildLimitOffset(query: SelectQuery, statement: Statement) {
     // SQLite requiere LIMIT cuando se usa OFFSET; LIMIT -1 significa sin límite
     if (query.getLimit() >= 0 || query.getOffset() >= 0) {
