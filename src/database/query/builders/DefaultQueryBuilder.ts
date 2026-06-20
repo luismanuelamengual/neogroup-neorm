@@ -248,7 +248,7 @@ export class DefaultQueryBuilder extends QueryBuilder {
         statement.sql += DefaultQueryBuilder.SPACE
       }
 
-      this.buildValue(fieldValue, statement)
+      this.buildColumnValue(fieldValue, statement)
       isFirst = false
     }
 
@@ -275,7 +275,7 @@ export class DefaultQueryBuilder extends QueryBuilder {
       statement.sql += DefaultQueryBuilder.SPACE
       statement.sql += DefaultQueryBuilder.EQUALS
       statement.sql += DefaultQueryBuilder.SPACE
-      this.buildValue(fields[fieldName], statement)
+      this.buildColumnValue(fields[fieldName], statement)
       isFirst = false
     }
 
@@ -572,6 +572,26 @@ export class DefaultQueryBuilder extends QueryBuilder {
       this.buildSelectQuery(value, statement)
       statement.sql += DefaultQueryBuilder.PARENTHESIS_END
     } else if (typeof value === 'object') {
+      this.buildField(value, statement)
+    } else {
+      this.buildSingleValue(value, statement)
+    }
+  }
+
+  /**
+   * Builds a column value for INSERT/UPDATE statements.
+   *
+   * Unlike buildValue, arrays are treated as a single opaque binding and are
+   * never expanded into a list of placeholders. This lets the underlying driver
+   * (e.g. node-postgres) serialize native array types (INT[], TEXT[], JSONB…)
+   * correctly without interference from the query builder.
+   */
+  protected buildColumnValue(value: any, statement: Statement) {
+    if (value instanceof SelectQuery) {
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_START
+      this.buildSelectQuery(value, statement)
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_END
+    } else if (!Array.isArray(value) && value !== null && value !== undefined && typeof value === 'object') {
       this.buildField(value, statement)
     } else {
       this.buildSingleValue(value, statement)
