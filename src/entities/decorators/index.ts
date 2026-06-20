@@ -1,4 +1,5 @@
 export * from './BelongsTo'
+export * from './BelongsToThrough'
 export * from './Column'
 export * from './Entity'
 export * from './HasMany'

@@ -137,6 +137,20 @@ export class EntityQuery<T> {
       )
       // Correlated condition: through.through_foreign_key = parent.local_key
       subConditions.whereColumn(`${throughTable}.${rel.throughForeignKey}`, `${this._repository.table}.${rel.localKey}`)
+    } else if (rel.type === 'belongsToThrough') {
+      const ThroughClass = rel.through!()
+      const throughRepo = Repository.get(ThroughClass)
+      const throughTable = throughRepo.table
+
+      // JOIN through table: related.through_local_key = through.through_foreign_key
+      subTable.join(
+        JoinType.INNER_JOIN,
+        throughTable,
+        `${relatedTable}.${rel.throughLocalKey}`,
+        `${throughTable}.${rel.throughForeignKey}`
+      )
+      // Correlated condition: through.local_key = self.foreign_key
+      subConditions.whereColumn(`${throughTable}.${rel.localKey}`, `${this._repository.table}.${rel.foreignKey}`)
     }
 
     // Build EXISTS (SELECT 1 FROM related_table [...] WHERE [...]).
@@ -198,6 +212,15 @@ export class EntityQuery<T> {
         `${throughTable}.${rel.throughLocalKey}`,
         `${relatedTable}.${rel.foreignKey}`
       )
+    } else if (rel.type === 'belongsToThrough') {
+      const ThroughClass = rel.through!()
+      const throughRepo = Repository.get(ThroughClass)
+      const throughTable = throughRepo.table
+
+      // self.foreignKey → through.localKey
+      this._table.join(joinType, throughTable, `${this._repository.table}.${rel.foreignKey}`, `${throughTable}.${rel.localKey}`)
+      // through.throughForeignKey → related.throughLocalKey
+      this._table.join(joinType, relatedTable, `${throughTable}.${rel.throughForeignKey}`, `${relatedTable}.${rel.throughLocalKey}`)
     }
 
     return this
@@ -417,6 +440,51 @@ export class EntityQuery<T> {
             matched.push(...items)
           })
           r[head] = rel.type === 'hasOneThrough' ? matched[0] ?? null : matched
+        })
+      } else if (rel.type === 'belongsToThrough') {
+        const ThroughClass = rel.through!()
+        const throughRepo = Repository.get(ThroughClass)
+        // Step 1: load through items matching self.foreignKey → through.localKey
+        const foreignKeys = [...new Set(entities.map((r) => r[rel.foreignKey]).filter((v) => v != null))]
+
+        if (foreignKeys.length === 0) {
+          continue
+        }
+
+        const throughItems = await throughRepo.whereIn(rel.localKey, foreignKeys).get()
+        // Step 2: load related items matching through.throughForeignKey → related.throughLocalKey
+        const throughFKValues = [
+          ...new Set(throughItems.map((t: any) => t[rel.throughForeignKey!]).filter((v: any) => v != null))
+        ]
+
+        if (throughFKValues.length === 0) {
+          continue
+        }
+
+        const q = relatedRepo.whereIn(rel.throughLocalKey, throughFKValues)
+
+        if (callback) {
+          callback(q)
+        }
+
+        relatedItems = await q.get()
+
+        // Build lookup: through.localKey → through item
+        const throughByLocalKey = new Map<any, any>()
+
+        throughItems.forEach((t: any) => throughByLocalKey.set(t[rel.localKey], t))
+
+        // Build lookup: related.throughLocalKey → related item
+        const relatedByThroughLocalKey = new Map<any, any>()
+
+        relatedItems.forEach((item: any) => relatedByThroughLocalKey.set(item[rel.throughLocalKey!], item))
+
+        // Assign: entity → through → related
+        entities.forEach((r) => {
+          const throughItem = throughByLocalKey.get(r[rel.foreignKey])
+          const relatedItem = throughItem ? relatedByThroughLocalKey.get(throughItem[rel.throughForeignKey!]) : null
+
+          r[head] = relatedItem ?? null
         })
       }
 
