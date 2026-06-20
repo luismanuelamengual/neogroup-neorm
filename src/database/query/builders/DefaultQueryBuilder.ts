@@ -430,6 +430,12 @@ export class DefaultQueryBuilder extends QueryBuilder {
       statement.sql += condition
     } else if (condition instanceof ConditionGroup) {
       this.buildConditionGroup(condition, statement)
+    } else if ('exists' in condition) {
+      statement.sql += 'EXISTS'
+      statement.sql += DefaultQueryBuilder.SPACE
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_START
+      this.buildSelectQuery(condition.exists, statement)
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_END
     } else if ('sql' in condition) {
       const { sql, bindings } = condition
 

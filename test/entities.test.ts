@@ -670,28 +670,36 @@ describe('Entities (Active Record — BaseEntity)', () => {
 
     it('hasMany: filtra con condición numérica', async () => {
       // Solo órdenes con amount > 10 → Gadget (24.99); Widget (9.99) y Doohickey (4.99) quedan fuera
-      const users = await UserModel.where('name', 'Alice').with({ orders: (q) => q.where('amount', '>', 10) }).get()
+      const users = await UserModel.where('name', 'Alice')
+        .with({ orders: (q) => q.where('amount', '>', 10) })
+        .get()
 
       expect(users[0].orders).toHaveLength(1)
       expect(users[0].orders[0].product).toBe('Gadget')
     })
 
     it('hasMany: ordena los relacionados con orderBy()', async () => {
-      const users = await UserModel.where('name', 'Alice').with({ orders: (q) => q.orderByDesc('amount') }).get()
+      const users = await UserModel.where('name', 'Alice')
+        .with({ orders: (q) => q.orderByDesc('amount') })
+        .get()
       const amounts = users[0].orders.map((o: any) => o.amount)
 
       expect(amounts).toEqual([24.99, 9.99])
     })
 
     it('hasMany: limita los relacionados con limit()', async () => {
-      const users = await UserModel.where('name', 'Alice').with({ orders: (q) => q.limit(1) }).get()
+      const users = await UserModel.where('name', 'Alice')
+        .with({ orders: (q) => q.limit(1) })
+        .get()
 
       expect(users[0].orders).toHaveLength(1)
     })
 
     it('belongsTo: filtra con callback (retorna null si no pasa)', async () => {
       // Todos los usuarios pertenecen a AR o BR; pedimos solo country con code 'AR'
-      const users = await UserModel.with({ country: (q) => q.where('code', 'AR') }).orderBy('name').get()
+      const users = await UserModel.with({ country: (q) => q.where('code', 'AR') })
+        .orderBy('name')
+        .get()
       const alice = users.find((u: any) => u.name === 'Alice')
       const charlie = users.find((u: any) => u.name === 'Charlie') // pertenece a BR
 
@@ -703,7 +711,9 @@ describe('Entities (Active Record — BaseEntity)', () => {
     it('hasManyThrough: filtra los relacionados con callback', async () => {
       // AR tiene 3 órdenes (Alice: Widget 9.99, Gadget 24.99; Bob: Doohickey 4.99)
       // Solo las que cuestan más de 10
-      const countries = await CountryModel.where('code', 'AR').with({ orders: (q) => q.where('amount', '>', 10) }).get()
+      const countries = await CountryModel.where('code', 'AR')
+        .with({ orders: (q) => q.where('amount', '>', 10) })
+        .get()
 
       expect(countries[0].orders).toHaveLength(1)
       expect(countries[0].orders[0].product).toBe('Gadget')
@@ -735,7 +745,9 @@ describe('Entities (Active Record — BaseEntity)', () => {
 
     it('dot-notation con constraint en la relación anidada', async () => {
       // Cargamos orders.user pero solo users con age > 26 (Alice 30; Bob 25 queda fuera)
-      const orders = await OrderModel.with({ 'user': (q) => q.where('age', '>', 26) }).orderBy('product').get()
+      const orders = await OrderModel.with({ user: (q) => q.where('age', '>', 26) })
+        .orderBy('product')
+        .get()
       const widget = orders.find((o: any) => o.product === 'Widget') // de Alice (age 30)
       const doohickey = orders.find((o: any) => o.product === 'Doohickey') // de Bob (age 25)
 
@@ -876,6 +888,60 @@ describe('Entities (Active Record — BaseEntity)', () => {
 
     it('lanza error si la relación no existe', () => {
       expect(() => UserModel.whereHas('nonexistent')).toThrow('Relationship "nonexistent" is not defined on users')
+    })
+
+    // ── Regression: orWhere dentro del callback de whereHas ──────────────────
+    // Bug: la condición correlacionada (orders.userId = users.id) se añadía al
+    // mismo nivel que las condiciones del usuario. Con precedencia AND > OR el SQL
+    // quedaba: product = ? OR amount > ? AND orders.userId = users.id
+    // lo que equivale a:
+    //   product = ? OR (amount > ? AND orders.userId = users.id)
+    // haciendo que la rama OR pudiera devolver órdenes de cualquier usuario.
+
+    it('whereHas con orWhere en el callback aplica la correlación a todas las ramas', async () => {
+      // Alice tiene Widget (9.99) y Gadget (24.99); Bob tiene Doohickey (4.99)
+      // Queremos usuarios que tengan al menos una orden con product='Widget' OR amount>10
+      // → Alice cumple ambas condiciones, Bob no cumple ninguna
+      const users = await UserModel.whereHas('orders', (q) => q.where('product', 'Widget').orWhere('amount', '>', 10))
+        .orderBy('name')
+        .get()
+      const names = users.map((u: any) => u.name)
+
+      expect(names).toEqual(['Alice'])
+    })
+
+    // ── Regression: whereHas + orWhere anidado + paginate ────────────────────
+    // Bug: el subquery de EXISTS se pre-compilaba con placeholders de Postgres
+    // ($1, $2…) relativos a un statement vacío. Al embeber en el outer query el
+    // count() y el get() producían posiciones $N incorrectas / con saltos que
+    // chocaban en el prepared statement.
+
+    it('whereHas + orWhere externo + paginate() retorna totales y datos correctos', async () => {
+      // Alice: active=1 y tiene órdenes  → entra por whereHas
+      // Bob:   active=1 y tiene órdenes  → entra por whereHas
+      // Charlie: active=0, sin órdenes  → entra por orWhere('name', 'Charlie')
+      const page = await UserModel.whereHas('orders').orWhere('name', 'Charlie').orderBy('name').paginate(10, 1)
+
+      expect(page.total).toBe(3)
+      expect(page.data).toHaveLength(3)
+      const names = page.data.map((u: any) => u.name)
+
+      expect(names).toEqual(['Alice', 'Bob', 'Charlie'])
+    })
+
+    it('whereHas con callback + orWhere externo + paginate() respeta ambas condiciones', async () => {
+      // whereHas filtra usuarios con orden de amount > 10 → solo Alice (Gadget 24.99)
+      // orWhere agrega a Charlie aunque no tenga órdenes
+      const page = await UserModel.whereHas('orders', (q) => q.where('amount', '>', 10))
+        .orWhere('name', 'Charlie')
+        .orderBy('name')
+        .paginate(10, 1)
+
+      expect(page.total).toBe(2)
+      expect(page.data).toHaveLength(2)
+      const names = page.data.map((u: any) => u.name)
+
+      expect(names).toEqual(['Alice', 'Charlie'])
     })
   })
 

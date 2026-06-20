@@ -1,7 +1,7 @@
 import { DataTable } from '../database/DataTable'
 import { PaginationResult } from '../database/PaginationResult'
 import { Field, SelectQuery } from '../database/query'
-import { Condition, ConditionGroup } from '../database/query/conditions'
+import { Condition, ConditionGroup, ExistsCondition } from '../database/query/conditions'
 import { JoinType } from '../database/query/features/HasJoins'
 import { OrderByDirection } from '../database/query/features/HasOrderByFields'
 import { EntityRepository, Repository } from './EntityRepository'
@@ -107,11 +107,22 @@ export class EntityQuery<T> {
       callback(subEntityQuery)
     }
 
-    // Add the correlated join condition between the related table and the parent table.
+    // Build the top-level condition group for the subquery.
+    // If the user callback added conditions, wrap them in a nested group so that
+    // the correlated column condition is always AND-ed with the entire user expression
+    // (prevents SQL precedence bugs when the callback uses orWhere).
+    const subConditions = new ConditionGroup()
+    const userConditions = subTable.getWhereConditions()
+
+    if (userConditions.getConditions().length > 0) {
+      subConditions.where(userConditions)
+    }
+
+    // Add the correlated join condition at the top level (always AND).
     if (rel.type === 'hasOne' || rel.type === 'hasMany') {
-      subTable.whereColumn(`${relatedTable}.${rel.foreignKey}`, `${this._repository.table}.${rel.localKey}`)
+      subConditions.whereColumn(`${relatedTable}.${rel.foreignKey}`, `${this._repository.table}.${rel.localKey}`)
     } else if (rel.type === 'belongsTo') {
-      subTable.whereColumn(`${relatedTable}.${rel.localKey}`, `${this._repository.table}.${rel.foreignKey}`)
+      subConditions.whereColumn(`${relatedTable}.${rel.localKey}`, `${this._repository.table}.${rel.foreignKey}`)
     } else if (rel.type === 'hasOneThrough' || rel.type === 'hasManyThrough') {
       const ThroughClass = rel.through!()
       const throughRepo = Repository.get(ThroughClass)
@@ -125,24 +136,25 @@ export class EntityQuery<T> {
         `${throughTable}.${rel.throughLocalKey}`
       )
       // Correlated condition: through.through_foreign_key = parent.local_key
-      subTable.whereColumn(`${throughTable}.${rel.throughForeignKey}`, `${this._repository.table}.${rel.localKey}`)
+      subConditions.whereColumn(`${throughTable}.${rel.throughForeignKey}`, `${this._repository.table}.${rel.localKey}`)
     }
 
-    // Build EXISTS (SELECT 1 FROM related_table [...] WHERE [...])
+    // Build EXISTS (SELECT 1 FROM related_table [...] WHERE [...]).
+    // Use a lazy ExistsCondition so the subquery is compiled in the context of the
+    // outer statement — this ensures Postgres $N positions are correct and avoids
+    // pre-baked placeholders clashing with outer bindings.
     const subSelectQuery = new SelectQuery(relatedTable)
 
     subSelectQuery.setSelectFields(['1'])
-    subSelectQuery.setWhereConditions(subTable.getWhereConditions())
+    subSelectQuery.setWhereConditions(subConditions)
     subSelectQuery.setJoins(subTable.getJoins())
 
-    const qb = (source as any).queryBuilder
-    const subStatement = qb.buildQuery(subSelectQuery)
-    const existsRaw = { sql: `EXISTS (${subStatement.sql})`, bindings: subStatement.bindings }
+    const existsCondition: ExistsCondition = { exists: subSelectQuery }
 
     if (connector === 'AND') {
-      this._table.where(existsRaw as any)
+      this._table.where(existsCondition as any)
     } else {
-      this._table.orWhere(existsRaw as any)
+      this._table.orWhere(existsCondition as any)
     }
 
     return this

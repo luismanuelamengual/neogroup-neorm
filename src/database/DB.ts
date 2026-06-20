@@ -113,7 +113,6 @@ export abstract class DB {
     }
 
     const env = process.env
-
     // 1. Default (unnamed) source — registered first so it becomes active
     const defaultUrl = env['DB_URL']
     const defaultDriver = env['DB_DRIVER']
@@ -196,7 +195,6 @@ export abstract class DB {
     // sqlite://:memory: is a common pattern but not a valid URL (colon in hostname).
     // Normalise it to sqlite:///:memory: which parses cleanly.
     const normalisedUrl = url.replace(/^(sqlite:\/\/):memory:/i, '$1/:memory:')
-
     let parsed: URL
 
     try {
@@ -226,6 +224,7 @@ export abstract class DB {
         case 'PASSWORD':
         case 'PASS':
           return parsed.password ? decodeURIComponent(parsed.password) : undefined
+
         case 'FILE': {
           // After normalisation:
           //   sqlite:///:memory:         → hostname="", pathname="/:memory:"
@@ -245,6 +244,7 @@ export abstract class DB {
 
           return pathname || undefined
         }
+
         default:
           return get?.(key)
       }
