@@ -136,12 +136,20 @@ export abstract class BaseEntity {
     return this._repo().orderByDesc(field)
   }
 
+  static groupBy<T extends BaseEntity>(this: EntityClass<T>, ...fields: Field[]): EntityQuery<T> {
+    return this._repo().groupBy(...fields)
+  }
+
   static limit<T extends BaseEntity>(this: EntityClass<T>, value: number): EntityQuery<T> {
     return this._repo().limit(value)
   }
 
   static offset<T extends BaseEntity>(this: EntityClass<T>, value: number): EntityQuery<T> {
     return this._repo().offset(value)
+  }
+
+  static select<T extends BaseEntity>(this: EntityClass<T>, ...fields: (Field | Field[])[]): EntityQuery<T> {
+    return this._repo().select(...fields)
   }
 
   static when<T extends BaseEntity>(

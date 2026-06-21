@@ -571,6 +571,8 @@ export class DefaultQueryBuilder extends QueryBuilder {
       statement.sql += DefaultQueryBuilder.PARENTHESIS_START
       this.buildSelectQuery(value, statement)
       statement.sql += DefaultQueryBuilder.PARENTHESIS_END
+    } else if (value instanceof Date) {
+      this.buildSingleValue(value, statement)
     } else if (typeof value === 'object') {
       this.buildField(value, statement)
     } else {

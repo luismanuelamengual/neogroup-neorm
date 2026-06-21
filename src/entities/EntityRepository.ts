@@ -429,6 +429,10 @@ export class EntityRepository<T> {
     return this.query().orderByDesc(field)
   }
 
+  groupBy(...fields: Field[]): EntityQuery<T> {
+    return this.query().groupBy(...fields)
+  }
+
   limit(value: number): EntityQuery<T> {
     return this.query().limit(value)
   }

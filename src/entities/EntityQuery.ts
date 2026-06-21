@@ -218,9 +218,19 @@ export class EntityQuery<T> {
       const throughTable = throughRepo.table
 
       // self.foreignKey → through.localKey
-      this._table.join(joinType, throughTable, `${this._repository.table}.${rel.foreignKey}`, `${throughTable}.${rel.localKey}`)
+      this._table.join(
+        joinType,
+        throughTable,
+        `${this._repository.table}.${rel.foreignKey}`,
+        `${throughTable}.${rel.localKey}`
+      )
       // through.throughForeignKey → related.throughLocalKey
-      this._table.join(joinType, relatedTable, `${throughTable}.${rel.throughForeignKey}`, `${relatedTable}.${rel.throughLocalKey}`)
+      this._table.join(
+        joinType,
+        relatedTable,
+        `${throughTable}.${rel.throughForeignKey}`,
+        `${relatedTable}.${rel.throughLocalKey}`
+      )
     }
 
     return this
