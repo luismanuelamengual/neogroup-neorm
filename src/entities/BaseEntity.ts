@@ -1,3 +1,4 @@
+import { DataTable } from '../database/DataTable'
 import { PaginationResult } from '../database/PaginationResult'
 import { Field } from '../database/query'
 import { Condition, ConditionGroup } from '../database/query/conditions'
@@ -29,8 +30,10 @@ export abstract class BaseEntity {
 
   // ── Static query methods (delegates) ─────────────────────────────────────────
 
-  static query<T extends BaseEntity>(this: EntityClass<T>): EntityQuery<T> {
-    return this._repo().query()
+  static query<T extends BaseEntity>(this: EntityClass<T>): DataTable {
+    const repo = this._repo()
+
+    return repo.getSource().table(repo.table)
   }
 
   static fromRow<T extends BaseEntity>(this: EntityClass<T>, row: Record<string, any>): T {
@@ -139,10 +142,6 @@ export abstract class BaseEntity {
 
   static offset<T extends BaseEntity>(this: EntityClass<T>, value: number): EntityQuery<T> {
     return this._repo().offset(value)
-  }
-
-  static select<T extends BaseEntity>(this: EntityClass<T>, ...fields: (Field | Field[])[]): EntityQuery<T> {
-    return this._repo().select(...fields)
   }
 
   static when<T extends BaseEntity>(

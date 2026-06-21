@@ -1127,14 +1127,14 @@ describe('Entities (Active Record — BaseEntity)', () => {
     })
 
     it('select() acepta nombres de propiedad', async () => {
-      const employee = await EmployeeModel.select('firstName').where('firstName', 'Luis').first()
+      const employee = await EmployeeModel.query().select('first_name').where('first_name', 'Luis').first()
 
-      expect(employee.firstName).toBe('Luis')
+      expect(employee.first_name).toBe('Luis')
       expect(employee.email).toBeUndefined()
     })
 
     it('groupBy() acepta el nombre de propiedad', async () => {
-      const employees = await EmployeeModel.select('isActive').groupBy('isActive').get()
+      const employees = await EmployeeModel.query().select('is_active').groupBy('is_active').get()
 
       expect(employees).toHaveLength(2)
     })
