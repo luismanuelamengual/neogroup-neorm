@@ -21,13 +21,14 @@ export interface RelationshipMeta {
 export interface PrototypeMeta {
   columns: ColumnMeta[]
   relationships: RelationshipMeta[]
+  virtualColumns: string[]
 }
 
 export const registry = new WeakMap<object, PrototypeMeta>()
 
 export function getOrCreate(proto: object): PrototypeMeta {
   if (!registry.has(proto)) {
-    registry.set(proto, { columns: [], relationships: [] })
+    registry.set(proto, { columns: [], relationships: [], virtualColumns: [] })
   }
 
   return registry.get(proto)!
