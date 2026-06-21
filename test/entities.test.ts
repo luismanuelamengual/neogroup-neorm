@@ -10,8 +10,8 @@ import {
   HasOneThrough,
   OrderByDirection,
   Repository,
-  SqliteDataSource,
-  VirtualColumn
+  Serializable,
+  SqliteDataSource
 } from '../src'
 
 // ─── Model definitions (extend BaseEntity + decorators) ──────────────────────
@@ -66,7 +66,7 @@ class User extends BaseEntity {
   @HasOneThrough(() => ShippingAddress, () => Profile, 'profileId', 'userId')
   shippingAddress?: ShippingAddress
 
-  @VirtualColumn()
+  @Serializable()
   get label(): string {
     return `${this.name} <${this.email}>`
   }

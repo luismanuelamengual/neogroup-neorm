@@ -1,4 +1,4 @@
-import { BaseEntity, BelongsTo, Column, DB, Dto, Entity, HasMany, SqliteDataSource, VirtualColumn } from '../src'
+import { BaseEntity, BelongsTo, Column, DB, Dto, Entity, HasMany, Serializable, SqliteDataSource } from '../src'
 
 // ─── Model definitions ────────────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ class User extends BaseEntity {
   @BelongsTo(() => Country, 'countryId')
   country?: Country
 
-  @VirtualColumn()
+  @Serializable()
   get label(): string {
     return `${this.name} <${this.email}>`
   }
