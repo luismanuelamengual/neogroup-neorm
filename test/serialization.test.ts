@@ -1,4 +1,4 @@
-import { BaseEntity, BelongsTo, Column, DB, Entity, HasMany, Repository, SqliteDataSource } from '../src'
+import { BaseEntity, BelongsTo, Column, DB, Entity, HasMany, Repository, SqliteDataSource, VirtualColumn } from '../src'
 
 // ─── Model definitions ────────────────────────────────────────────────────────
 
@@ -34,6 +34,7 @@ class Post extends BaseEntity {
   @BelongsTo(() => Author, 'authorId')
   author?: Author
 
+  @VirtualColumn()
   get slug(): string {
     return this.title.toLowerCase().replace(/\s+/g, '-')
   }
