@@ -57,8 +57,7 @@ export function registerEntityMeta(entityClass: any, meta: EntityMeta): void {
 // ── Global scopes ─────────────────────────────────────────────────────────────
 
 /** entity class → (scope name → scope function) */
-const _globalScopesStore = new Map<any, Map<string, (query: any) => void>>()
-
+const _globalScopesStore = new Map<any, Map<string, (query: any) => void | Promise<void>>>()
 /** Tracks which entity classes have already had booted() called. */
 const _bootedClasses = new Set<any>()
 
@@ -66,7 +65,7 @@ const _bootedClasses = new Set<any>()
  * Registers a named global scope for an entity class.
  * Called from BaseEntity.addGlobalScope() or directly.
  */
-export function addGlobalScopeToStore(entityClass: any, name: string, fn: (query: any) => void): void {
+export function addGlobalScopeToStore(entityClass: any, name: string, fn: (query: any) => void | Promise<void>): void {
   if (!_globalScopesStore.has(entityClass)) {
     _globalScopesStore.set(entityClass, new Map())
   }
@@ -77,7 +76,7 @@ export function addGlobalScopeToStore(entityClass: any, name: string, fn: (query
 /**
  * Returns all registered global scopes for an entity class.
  */
-export function getGlobalScopes(entityClass: any): Map<string, (query: any) => void> {
+export function getGlobalScopes(entityClass: any): Map<string, (query: any) => void | Promise<void>> {
   return _globalScopesStore.get(entityClass) ?? new Map()
 }
 

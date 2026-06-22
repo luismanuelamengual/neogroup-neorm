@@ -55,7 +55,7 @@ export abstract class BaseEntity {
   static addGlobalScope<T extends BaseEntity>(
     this: EntityClass<T>,
     nameOrScope: string | Scope<T>,
-    callback?: (query: EntityQuery<T>) => void
+    callback?: (query: EntityQuery<T>) => void | Promise<void>
   ): void {
     let name: string
     let fn: (query: EntityQuery<T>) => void

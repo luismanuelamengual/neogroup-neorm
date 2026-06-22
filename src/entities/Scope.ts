@@ -17,5 +17,5 @@ import { EntityQuery } from './EntityQuery'
  *   }
  */
 export interface Scope<T = any> {
-  apply(query: EntityQuery<T>): void
+  apply(query: EntityQuery<T>): void | Promise<void>
 }

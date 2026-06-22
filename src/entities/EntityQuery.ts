@@ -58,7 +58,7 @@ export class EntityQuery<T> {
   }
 
   /** Applies all registered global scopes that have not been excluded. Called lazily before terminal methods. */
-  private _applyGlobalScopes(): void {
+  private async _applyGlobalScopes(): Promise<void> {
     if (this._scopesApplied) {
       return
     }
@@ -74,7 +74,7 @@ export class EntityQuery<T> {
 
     for (const [name, scopeFn] of scopes) {
       if (!this._excludedScopes.has(name)) {
-        scopeFn(this)
+        await scopeFn(this)
       }
     }
   }
@@ -290,7 +290,7 @@ export class EntityQuery<T> {
   // ── Terminal methods ─────────────────────────────────────────────────────────
 
   public async get(): Promise<T[]> {
-    this._applyGlobalScopes()
+    await this._applyGlobalScopes()
     const rows = await this._table.get()
     const entities = rows.map((row) => this._repository.fromRow(row))
 
@@ -302,7 +302,7 @@ export class EntityQuery<T> {
   }
 
   public async first(): Promise<T | null> {
-    this._applyGlobalScopes()
+    await this._applyGlobalScopes()
     const row = await this._table.first()
 
     if (!row) {
@@ -319,14 +319,14 @@ export class EntityQuery<T> {
   }
 
   public async count(column: Field = '*'): Promise<number> {
-    this._applyGlobalScopes()
+    await this._applyGlobalScopes()
     const resolved = column === '*' ? '*' : this._resolveField(column)
 
     return this._table.count(resolved)
   }
 
   public async paginate(perPage = 15, page = 1): Promise<PaginationResult<T>> {
-    this._applyGlobalScopes()
+    await this._applyGlobalScopes()
     const currentPage = Math.max(page, 1)
     const total = await this._table.count()
     const lastPage = Math.max(Math.ceil(total / perPage), 1)
@@ -341,7 +341,7 @@ export class EntityQuery<T> {
   }
 
   public async find(id: any): Promise<T | null> {
-    this._applyGlobalScopes()
+    await this._applyGlobalScopes()
     const row = await this._table.where(this._repository.primaryKey, id).first()
 
     if (!row) {
