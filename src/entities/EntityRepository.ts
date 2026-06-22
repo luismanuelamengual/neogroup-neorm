@@ -50,6 +50,51 @@ export function registerEntityMeta(entityClass: any, meta: EntityMeta): void {
   _metaStore.set(entityClass, meta)
   // Invalidate any cached repository so it picks up fresh metadata
   _repoCache.delete(entityClass)
+  // Invalidate booted state so booted() is called again with fresh metadata
+  _bootedClasses.delete(entityClass)
+}
+
+// ── Global scopes ─────────────────────────────────────────────────────────────
+
+/** entity class → (scope name → scope function) */
+const _globalScopesStore = new Map<any, Map<string, (query: any) => void>>()
+
+/** Tracks which entity classes have already had booted() called. */
+const _bootedClasses = new Set<any>()
+
+/**
+ * Registers a named global scope for an entity class.
+ * Called from BaseEntity.addGlobalScope() or directly.
+ */
+export function addGlobalScopeToStore(entityClass: any, name: string, fn: (query: any) => void): void {
+  if (!_globalScopesStore.has(entityClass)) {
+    _globalScopesStore.set(entityClass, new Map())
+  }
+
+  _globalScopesStore.get(entityClass)!.set(name, fn)
+}
+
+/**
+ * Returns all registered global scopes for an entity class.
+ */
+export function getGlobalScopes(entityClass: any): Map<string, (query: any) => void> {
+  return _globalScopesStore.get(entityClass) ?? new Map()
+}
+
+/**
+ * Calls entityClass.booted() once per class (idempotent).
+ * Invoked by Repository.get() the first time a repo is created for a class.
+ */
+export function bootEntityClass(entityClass: any): void {
+  if (_bootedClasses.has(entityClass)) {
+    return
+  }
+
+  _bootedClasses.add(entityClass)
+
+  if (typeof (entityClass as any).booted === 'function') {
+    ;(entityClass as any).booted()
+  }
 }
 
 // ── Repository cache ──────────────────────────────────────────────────────────
@@ -69,6 +114,7 @@ export class Repository {
   static get<T>(entityClass: new (...args: any[]) => T): EntityRepository<T> {
     if (!_repoCache.has(entityClass)) {
       _repoCache.set(entityClass, new EntityRepository<T>(entityClass))
+      bootEntityClass(entityClass)
     }
 
     return _repoCache.get(entityClass)! as EntityRepository<T>

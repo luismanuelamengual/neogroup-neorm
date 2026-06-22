@@ -4,7 +4,8 @@ import { Field } from '../database/query'
 import { Condition, ConditionGroup } from '../database/query/conditions'
 import { OrderByDirection } from '../database/query/features/HasOrderByFields'
 import { EntityQuery } from './EntityQuery'
-import { EntityRepository, Repository } from './EntityRepository'
+import { addGlobalScopeToStore, EntityRepository, Repository } from './EntityRepository'
+import { Scope } from './Scope'
 
 /** A concrete entity class: constructible and carrying the BaseEntity statics. */
 export type EntityClass<T extends BaseEntity = BaseEntity> = typeof BaseEntity & (new () => T)
@@ -26,6 +27,68 @@ export abstract class BaseEntity {
 
   private static _repo<T extends BaseEntity>(this: EntityClass<T>): EntityRepository<T> {
     return Repository.get(this) as EntityRepository<T>
+  }
+
+  // ── Booted hook ───────────────────────────────────────────────────────────────
+
+  /**
+   * Called once per entity class the first time its repository is accessed.
+   * Override to register global scopes:
+   *
+   *   protected static booted(): void {
+   *     static.addGlobalScope('active', query => query.where('status', 'active'))
+   *   }
+   */
+  protected static booted(): void {}
+
+  // ── Global scopes ─────────────────────────────────────────────────────────────
+
+  /**
+   * Registers a named global scope applied to every query for this entity.
+   *
+   *   // Inline callback:
+   *   static::addGlobalScope('active', query => query.where('status', 'active'))
+   *
+   *   // Reusable Scope object (key = class name):
+   *   static::addGlobalScope(new ActiveScope)
+   */
+  static addGlobalScope<T extends BaseEntity>(
+    this: EntityClass<T>,
+    nameOrScope: string | Scope<T>,
+    callback?: (query: EntityQuery<T>) => void
+  ): void {
+    let name: string
+    let fn: (query: EntityQuery<T>) => void
+
+    if (typeof nameOrScope === 'string') {
+      name = nameOrScope
+      fn = callback!
+    } else {
+      name = nameOrScope.constructor.name
+      fn = (query) => (nameOrScope as Scope<T>).apply(query)
+    }
+
+    addGlobalScopeToStore(this, name, fn as (query: any) => void)
+  }
+
+  /**
+   * Returns an EntityQuery with the given named global scope(s) disabled.
+   *
+   *   Product.withoutGlobalScope('active').get()
+   */
+  static withoutGlobalScope<T extends BaseEntity>(this: EntityClass<T>, ...names: string[]): EntityQuery<T> {
+    return this._repo()
+      .query()
+      .withoutGlobalScope(...names)
+  }
+
+  /**
+   * Returns an EntityQuery with ALL global scopes disabled.
+   *
+   *   Product.withoutGlobalScopes().get()
+   */
+  static withoutGlobalScopes<T extends BaseEntity>(this: EntityClass<T>): EntityQuery<T> {
+    return this._repo().query().withoutGlobalScopes()
   }
 
   // ── Static query methods (delegates) ─────────────────────────────────────────

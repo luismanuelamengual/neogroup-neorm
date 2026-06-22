@@ -4,7 +4,7 @@ import { Field, SelectQuery } from '../database/query'
 import { Condition, ConditionGroup, ExistsCondition } from '../database/query/conditions'
 import { JoinType } from '../database/query/features/HasJoins'
 import { OrderByDirection } from '../database/query/features/HasOrderByFields'
-import { EntityRepository, Repository } from './EntityRepository'
+import { EntityRepository, getGlobalScopes, Repository } from './EntityRepository'
 
 /** A single eager-load entry: the dot-notation path and an optional constraint callback. */
 export type WithEntry = {
@@ -22,10 +22,61 @@ export class EntityQuery<T> {
   private _repository: EntityRepository<T>
   private _table: DataTable
   private _withs: WithEntry[] = []
+  private _scopesApplied = false
+  private _excludedScopes: Set<string> = new Set()
+  private _skipAllScopes = false
 
   constructor(repository: EntityRepository<T>, table: DataTable) {
     this._repository = repository
     this._table = table
+  }
+
+  // ── Global scope control ─────────────────────────────────────────────────────
+
+  /**
+   * Excludes one or more named global scopes from being applied to this query.
+   *
+   *   Product.withoutGlobalScope('active').get()
+   */
+  public withoutGlobalScope(...names: string[]): this {
+    for (const name of names) {
+      this._excludedScopes.add(name)
+    }
+
+    return this
+  }
+
+  /**
+   * Disables all global scopes for this query.
+   *
+   *   Product.withoutGlobalScopes().get()
+   */
+  public withoutGlobalScopes(): this {
+    this._skipAllScopes = true
+
+    return this
+  }
+
+  /** Applies all registered global scopes that have not been excluded. Called lazily before terminal methods. */
+  private _applyGlobalScopes(): void {
+    if (this._scopesApplied) {
+      return
+    }
+
+    this._scopesApplied = true
+
+    if (this._skipAllScopes) {
+      return
+    }
+
+    const entityClass = (this._repository as any)._entityClass
+    const scopes = getGlobalScopes(entityClass)
+
+    for (const [name, scopeFn] of scopes) {
+      if (!this._excludedScopes.has(name)) {
+        scopeFn(this)
+      }
+    }
   }
 
   // ── Conditional clauses ──────────────────────────────────────────────────────
@@ -239,6 +290,7 @@ export class EntityQuery<T> {
   // ── Terminal methods ─────────────────────────────────────────────────────────
 
   public async get(): Promise<T[]> {
+    this._applyGlobalScopes()
     const rows = await this._table.get()
     const entities = rows.map((row) => this._repository.fromRow(row))
 
@@ -250,6 +302,7 @@ export class EntityQuery<T> {
   }
 
   public async first(): Promise<T | null> {
+    this._applyGlobalScopes()
     const row = await this._table.first()
 
     if (!row) {
@@ -266,12 +319,14 @@ export class EntityQuery<T> {
   }
 
   public async count(column: Field = '*'): Promise<number> {
+    this._applyGlobalScopes()
     const resolved = column === '*' ? '*' : this._resolveField(column)
 
     return this._table.count(resolved)
   }
 
   public async paginate(perPage = 15, page = 1): Promise<PaginationResult<T>> {
+    this._applyGlobalScopes()
     const currentPage = Math.max(page, 1)
     const total = await this._table.count()
     const lastPage = Math.max(Math.ceil(total / perPage), 1)
@@ -286,6 +341,7 @@ export class EntityQuery<T> {
   }
 
   public async find(id: any): Promise<T | null> {
+    this._applyGlobalScopes()
     const row = await this._table.where(this._repository.primaryKey, id).first()
 
     if (!row) {
