@@ -388,4 +388,49 @@ describe('BelongsToThrough', () => {
       expect(ids).toContain(orphan!.id)
     })
   })
+
+  // ─── Cached through — reutilización de tabla intermedia ya cargada ──────────
+  //
+  // BelongsToThrough: cuando el modelo intermedio ya está cargado como propiedad
+  // de objeto único (BelongsTo), no debe emitirse una segunda query a su tabla.
+
+  describe('Cached through — reutilización de tabla intermedia ya cargada', () => {
+    let queriedSqls: string[]
+
+    beforeEach(async () => {
+      // Habilitamos debug en el source para que DataConnection loguee cada SQL
+      // construido, y espiamos console.log para capturarlos.
+      source.setDebugEnabled(true)
+      queriedSqls = []
+      jest.spyOn(console, 'log').mockImplementation((msg: string) => {
+        if (typeof msg === 'string' && msg.startsWith('SQL:')) {
+          queriedSqls.push(msg)
+        }
+      })
+    })
+
+    afterEach(() => {
+      source.setDebugEnabled(false)
+      jest.restoreAllMocks()
+    })
+
+    it('belongsToThrough: no re-consulta la tabla intermedia si ya fue cargada con with()', async () => {
+      // BttProfile → user    (BelongsTo,        tabla intermedia = btt_users)
+      // BttProfile → country (BelongsToThrough  a través de btt_users)
+      // Al cargar ambos, la tabla "btt_users" solo debe consultarse una vez.
+      const profiles = await Repository.get(BttProfile).with('user', 'country').get()
+      const aliceProfile = profiles.find((p) => p.bio === 'Alice bio')!
+
+      // Resultados correctos
+      expect(aliceProfile.user).toBeDefined()
+      expect(aliceProfile.user!.name).toBe('Alice')
+      expect(aliceProfile.country).toBeDefined()
+      expect(aliceProfile.country!.name).toBe('Argentina')
+
+      // La tabla "btt_users" no debe aparecer dos veces en las queries emitidas
+      const userQueries = queriedSqls.filter((sql) => /FROM\s+"?btt_users"?/i.test(sql))
+
+      expect(userQueries).toHaveLength(1)
+    })
+  })
 })

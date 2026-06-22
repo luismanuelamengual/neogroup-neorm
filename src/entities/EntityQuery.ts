@@ -455,7 +455,33 @@ export class EntityQuery<T> {
           continue
         }
 
-        const throughItems = await throughRepo.whereIn(rel.throughForeignKey!, localKeys).get()
+        // Check if the through entities are already loaded on the parent entities
+        // (e.g. via a prior .with('categories') when 'competitors' goes through TournamentCategory).
+        // The through may be loaded as an array (HasMany) or a single object (HasOne/BelongsTo).
+        // If so, reuse them to avoid a redundant DB round-trip.
+        let throughItems: any[]
+        const cachedThroughItems = entities.flatMap((r) => {
+          for (const key of Object.keys(r)) {
+            const val = r[key]
+
+            if (Array.isArray(val) && val.length > 0 && val[0] instanceof ThroughClass) {
+              return val
+            }
+
+            if (val != null && !Array.isArray(val) && val instanceof ThroughClass) {
+              return [val]
+            }
+          }
+
+          return []
+        })
+
+        if (cachedThroughItems.length > 0) {
+          throughItems = cachedThroughItems
+        } else {
+          throughItems = await throughRepo.whereIn(rel.throughForeignKey!, localKeys).get()
+        }
+
         const throughKeys = [
           ...new Set(throughItems.map((t: any) => t[rel.throughLocalKey!]).filter((v: any) => v != null))
         ]
@@ -517,7 +543,22 @@ export class EntityQuery<T> {
           continue
         }
 
-        const throughItems = await throughRepo.whereIn(rel.localKey, foreignKeys).get()
+        // Check if the through entities are already loaded as single-object properties
+        // (e.g. via a prior .with('someRelation') where the related model is ThroughClass).
+        const cachedThroughItems = entities.flatMap((r) => {
+          for (const key of Object.keys(r)) {
+            const val = r[key]
+            if (val != null && !Array.isArray(val) && val instanceof ThroughClass) {
+              return [val]
+            }
+          }
+          return []
+        })
+
+        const throughItems =
+          cachedThroughItems.length > 0
+            ? cachedThroughItems
+            : await throughRepo.whereIn(rel.localKey, foreignKeys).get()
         // Step 2: load related items matching through.throughForeignKey → related.throughLocalKey
         const throughFKValues = [
           ...new Set(throughItems.map((t: any) => t[rel.throughForeignKey!]).filter((v: any) => v != null))

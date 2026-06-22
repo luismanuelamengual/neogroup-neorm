@@ -1010,6 +1010,73 @@ describe('Entities (Active Record — BaseEntity)', () => {
     })
   })
 
+  // ─── Cached through — reutilización de tabla intermedia ya cargada ──────────
+  //
+  // Cuando se combina .with('X') con una relación *Through que pasa por el mismo
+  // modelo intermedio X, el ORM no debe emitir una segunda query a la tabla de X.
+  // En su lugar debe reutilizar los registros ya cargados en memoria.
+
+  describe('Cached through — reutilización de tabla intermedia ya cargada', () => {
+    let queriedSqls: string[]
+
+    beforeEach(async () => {
+      await seedCountries()
+      await seedUsers()
+      await seedRelated()
+
+      // Habilitamos debug en el source para que DataConnection loguee cada SQL
+      // construido, y espiamos console.log para capturarlos.
+      source.setDebugEnabled(true)
+      queriedSqls = []
+      jest.spyOn(console, 'log').mockImplementation((msg: string) => {
+        if (typeof msg === 'string' && msg.startsWith('SQL:')) {
+          queriedSqls.push(msg)
+        }
+      })
+    })
+
+    afterEach(() => {
+      source.setDebugEnabled(false)
+      jest.restoreAllMocks()
+    })
+
+    it('hasManyThrough: no re-consulta la tabla intermedia si ya fue cargada con with()', async () => {
+      // Country → users  (HasMany,        tabla intermedia = users)
+      // Country → orders (HasManyThrough  a través de users)
+      // Al cargar ambos, la tabla "users" solo debe consultarse una vez.
+      const countries = await CountryModel.where('code', 'AR').with('users', 'orders').get()
+      const country = countries[0]
+
+      // Resultados correctos
+      expect(country.users).toHaveLength(2) // Alice y Bob
+      expect(country.orders).toHaveLength(3) // Widget, Gadget, Doohickey
+
+      // La tabla "users" no debe aparecer dos veces en las queries emitidas
+      const userQueries = queriedSqls.filter((sql) => /FROM\s+"?users"?/i.test(sql))
+
+      expect(userQueries).toHaveLength(1)
+    })
+
+    it('hasOneThrough: no re-consulta la tabla intermedia si ya fue cargada con with()', async () => {
+      // User → profile         (HasOne,       tabla intermedia = profiles)
+      // User → shippingAddress (HasOneThrough a través de profiles)
+      // Al cargar ambos, la tabla "profiles" solo debe consultarse una vez.
+      const users = await UserModel.where('name', 'Alice').with('profile', 'shippingAddress').get()
+      const alice = users[0]
+
+      // Resultados correctos
+      expect(alice.profile).toBeDefined()
+      expect(alice.profile.bio).toBe('Alice bio')
+      expect(alice.shippingAddress).toBeDefined()
+      expect(alice.shippingAddress.street).toBe('123 Main St')
+
+      // La tabla "profiles" no debe aparecer dos veces en las queries emitidas
+      const profileQueries = queriedSqls.filter((sql) => /FROM\s+"?profiles"?/i.test(sql))
+
+      expect(profileQueries).toHaveLength(1)
+    })
+  })
+
   // ─── columnName — renombrado de columnas ──────────────────────────────────
 
   describe('columnName — renombrado de columnas', () => {
