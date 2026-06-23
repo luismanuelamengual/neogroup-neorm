@@ -266,6 +266,28 @@ export abstract class BaseEntity {
 
   // ── Instance persistence (delegates) ─────────────────────────────────────────
 
+  /**
+   * Inserts the given records, updating the conflicting columns when a row
+   * already exists. Mirrors Eloquent's `Model::upsert($values, $uniqueBy, $update)`:
+   *
+   *   await PlayerStatistics.upsert(
+   *     [{ playerId: 7, points: 120, updatedAt: new Date() }],
+   *     'playerId',                 // unique-by property (or properties)
+   *     ['points', 'updatedAt']     // properties to overwrite on conflict (optional)
+   *   )
+   *
+   * When `update` is omitted, every provided column that is not part of
+   * `uniqueBy` is updated. Returns the number of affected rows.
+   */
+  static async upsert<T extends BaseEntity>(
+    this: EntityClass<T>,
+    values: Record<string, any>[],
+    uniqueBy: string | string[],
+    update?: string[]
+  ): Promise<number> {
+    return this._repo().upsert(values, uniqueBy, update)
+  }
+
   async save(): Promise<void> {
     await Repository.get(this.constructor as any).save(this)
   }

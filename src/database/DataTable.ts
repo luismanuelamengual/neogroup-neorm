@@ -19,7 +19,8 @@ import {
   HasWhereConditions,
   InsertQuery,
   SelectQuery,
-  UpdateQuery
+  UpdateQuery,
+  UpsertQuery
 } from './query'
 import { HasOrderByFields } from './query/features/HasOrderByFields'
 
@@ -110,6 +111,34 @@ export class DataTable {
 
   public async delete(): Promise<number> {
     return await this.source.execute(this.createDeleteQuery())
+  }
+
+  /**
+   * Inserts the given rows, updating the conflicting columns when a row already
+   * exists. Mirrors Eloquent's `upsert($values, $uniqueBy, $update)`:
+   *
+   *   await DB.table('player_statistics').upsert(
+   *     [{ playerId: 7, points: 120, updatedAt: new Date() }],
+   *     'playerId',                 // unique-by column(s)
+   *     ['points', 'updatedAt']     // columns to overwrite on conflict (optional)
+   *   )
+   *
+   * When `update` is omitted, every inserted column that is not part of
+   * `uniqueBy` is updated. The engine-specific SQL (PostgreSQL/SQLite
+   * `ON CONFLICT`, MySQL `ON DUPLICATE KEY UPDATE`) is produced by the source's
+   * query builder.
+   */
+  public async upsert(rows: DataSet[], uniqueBy: string | string[], update?: string[]): Promise<number> {
+    if (rows.length === 0) {
+      return 0
+    }
+
+    const query = new UpsertQuery(this._table)
+      .setRows(rows)
+      .setConflictColumns(Array.isArray(uniqueBy) ? uniqueBy : [uniqueBy])
+      .setUpdateColumns(update)
+
+    return await this.source.execute(query)
   }
 
   private createSelectQuery(): SelectQuery {

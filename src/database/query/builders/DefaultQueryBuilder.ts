@@ -1,3 +1,4 @@
+import { DataSet } from '../../DataSet'
 import { ColumnCondition, Condition, ConditionConnector, ConditionGroup } from '../conditions'
 import { DeleteQuery } from '../DeleteQuery'
 import { Join, JoinType, OrderByField, SelectField } from '../features'
@@ -8,6 +9,7 @@ import { QueryTable } from '../QueryTable'
 import { SelectQuery } from '../SelectQuery'
 import { Statement } from '../Statement'
 import { UpdateQuery } from '../UpdateQuery'
+import { UpsertQuery } from '../UpsertQuery'
 import { QueryBuilder } from './QueryBuilder'
 
 export class DefaultQueryBuilder extends QueryBuilder {
@@ -53,6 +55,10 @@ export class DefaultQueryBuilder extends QueryBuilder {
   protected static readonly WILDCARD = '?'
   protected static readonly UNION = 'UNION'
   protected static readonly BETWEEN = 'BETWEEN'
+  protected static readonly ON_CONFLICT = 'ON CONFLICT'
+  protected static readonly DO_UPDATE_SET = 'DO UPDATE SET'
+  protected static readonly DO_NOTHING = 'DO NOTHING'
+  protected static readonly EXCLUDED = 'EXCLUDED'
 
   public buildQuery(query: Query): Statement {
     const statement = { sql: '', bindings: [] }
@@ -65,6 +71,8 @@ export class DefaultQueryBuilder extends QueryBuilder {
       this.buildUpdateQuery(query, statement)
     } else if (query instanceof DeleteQuery) {
       this.buildDeleteQuery(query, statement)
+    } else if (query instanceof UpsertQuery) {
+      this.buildUpsertQuery(query, statement)
     }
 
     return statement
@@ -303,6 +311,137 @@ export class DefaultQueryBuilder extends QueryBuilder {
       statement.sql += DefaultQueryBuilder.SPACE
       this.buildConditionGroup(whereConditions, statement)
     }
+  }
+
+  /**
+   * Builds an upsert (insert-or-update) statement. The INSERT ... VALUES part is
+   * shared across engines; the conflict-resolution clause is delegated to
+   * buildUpsertConflictClause, which engine-specific builders override.
+   */
+  protected buildUpsertQuery(query: UpsertQuery, statement: Statement) {
+    const rows = query.getRows()
+    const columns = this.collectUpsertColumns(rows)
+
+    statement.sql += DefaultQueryBuilder.INSERT
+    statement.sql += DefaultQueryBuilder.SPACE
+    statement.sql += DefaultQueryBuilder.INTO
+    statement.sql += DefaultQueryBuilder.SPACE
+    this.buildTable(query.getTable(), statement)
+    statement.sql += DefaultQueryBuilder.SPACE
+    statement.sql += DefaultQueryBuilder.PARENTHESIS_START
+    columns.forEach((column, index) => {
+      if (index > 0) {
+        statement.sql += DefaultQueryBuilder.COMMA
+        statement.sql += DefaultQueryBuilder.SPACE
+      }
+
+      this.buildFieldName(column, statement)
+    })
+    statement.sql += DefaultQueryBuilder.PARENTHESIS_END
+    statement.sql += DefaultQueryBuilder.SPACE
+    statement.sql += DefaultQueryBuilder.VALUES
+    statement.sql += DefaultQueryBuilder.SPACE
+    rows.forEach((row, rowIndex) => {
+      if (rowIndex > 0) {
+        statement.sql += DefaultQueryBuilder.COMMA
+        statement.sql += DefaultQueryBuilder.SPACE
+      }
+
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_START
+      columns.forEach((column, columnIndex) => {
+        if (columnIndex > 0) {
+          statement.sql += DefaultQueryBuilder.COMMA
+          statement.sql += DefaultQueryBuilder.SPACE
+        }
+
+        this.buildColumnValue(column in row ? row[column] : null, statement)
+      })
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_END
+    })
+
+    this.buildUpsertConflictClause(query, columns, statement)
+  }
+
+  /**
+   * Resolves the columns updated on conflict: the explicit list when provided,
+   * otherwise every inserted column that is not part of the conflict target
+   * (Eloquent's default behaviour).
+   */
+  protected resolveUpsertUpdateColumns(query: UpsertQuery, columns: string[]): string[] {
+    const updateColumns = query.getUpdateColumns()
+
+    if (updateColumns) {
+      return updateColumns
+    }
+
+    const conflictColumns = query.getConflictColumns()
+
+    return columns.filter((column) => !conflictColumns.includes(column))
+  }
+
+  /**
+   * Conflict-resolution clause for PostgreSQL and SQLite, which share the
+   * `ON CONFLICT (...) DO UPDATE SET col = EXCLUDED.col` syntax. MySQL overrides
+   * this with its `ON DUPLICATE KEY UPDATE` form.
+   */
+  protected buildUpsertConflictClause(query: UpsertQuery, columns: string[], statement: Statement) {
+    const conflictColumns = query.getConflictColumns()
+    const updateColumns = this.resolveUpsertUpdateColumns(query, columns)
+
+    statement.sql += DefaultQueryBuilder.SPACE
+    statement.sql += DefaultQueryBuilder.ON_CONFLICT
+    statement.sql += DefaultQueryBuilder.SPACE
+    statement.sql += DefaultQueryBuilder.PARENTHESIS_START
+    conflictColumns.forEach((column, index) => {
+      if (index > 0) {
+        statement.sql += DefaultQueryBuilder.COMMA
+        statement.sql += DefaultQueryBuilder.SPACE
+      }
+
+      this.buildFieldName(column, statement)
+    })
+    statement.sql += DefaultQueryBuilder.PARENTHESIS_END
+    statement.sql += DefaultQueryBuilder.SPACE
+
+    if (updateColumns.length === 0) {
+      statement.sql += DefaultQueryBuilder.DO_NOTHING
+
+      return
+    }
+
+    statement.sql += DefaultQueryBuilder.DO_UPDATE_SET
+    statement.sql += DefaultQueryBuilder.SPACE
+    updateColumns.forEach((column, index) => {
+      if (index > 0) {
+        statement.sql += DefaultQueryBuilder.COMMA
+        statement.sql += DefaultQueryBuilder.SPACE
+      }
+
+      this.buildFieldName(column, statement)
+      statement.sql += DefaultQueryBuilder.SPACE
+      statement.sql += DefaultQueryBuilder.EQUALS
+      statement.sql += DefaultQueryBuilder.SPACE
+      statement.sql += DefaultQueryBuilder.EXCLUDED
+      statement.sql += DefaultQueryBuilder.POINT
+      this.buildFieldName(column, statement)
+    })
+  }
+
+  /** Collects the ordered, de-duplicated set of columns present across all rows. */
+  protected collectUpsertColumns(rows: DataSet[]): string[] {
+    const columns: string[] = []
+    const seen = new Set<string>()
+
+    for (const row of rows) {
+      for (const column of Object.keys(row)) {
+        if (!seen.has(column)) {
+          seen.add(column)
+          columns.push(column)
+        }
+      }
+    }
+
+    return columns
   }
 
   /**
