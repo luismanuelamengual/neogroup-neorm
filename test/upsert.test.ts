@@ -240,4 +240,60 @@ describe('Upsert — insert or update on conflict', () => {
     expect(rows[0].updatedAt).toBeInstanceOf(Date)
     expect(rows[0].updatedAt.getTime()).toBe(updated.getTime())
   })
+
+  // ─── Upsert keyed on the auto-generated primary key ────────────────────────
+
+  test('Entity.upsert keyed on the auto-generated primary key updates in place (no duplication)', async () => {
+    const date = new Date('2026-06-23T10:00:00.000Z')
+
+    await PlayerStatistics.upsert(
+      [
+        { playerId: 1, points: 10, matches: 1, updatedAt: date },
+        { playerId: 2, points: 20, matches: 2, updatedAt: date }
+      ],
+      'playerId'
+    )
+
+    const seeded = await PlayerStatistics.orderBy('playerId').get()
+
+    expect(seeded).toHaveLength(2)
+
+    // Upsert keyed on the auto-generated `id`. The conflict target must be written
+    // into the INSERT, otherwise ON CONFLICT (id) never matches and every row is
+    // inserted as a duplicate instead of being updated.
+    await PlayerStatistics.upsert(
+      seeded.map((row) => ({
+        id: row.id,
+        playerId: row.playerId,
+        points: row.points + 5,
+        matches: row.matches,
+        updatedAt: date
+      })),
+      'id',
+      ['points']
+    )
+
+    const rows = await PlayerStatistics.orderBy('playerId').get()
+
+    expect(rows).toHaveLength(2) // updated in place, not duplicated
+    expect(rows.map((r) => Number(r.points))).toEqual([15, 25])
+  })
+
+  test('a batch UpsertQuery keyed on the primary key includes the id column', () => {
+    const statement = new SqliteQueryBuilder().buildQuery(
+      new UpsertQuery('player_statistics')
+        .setRows([
+          { id: 1, playerId: 1, points: 10 },
+          { id: 2, playerId: 2, points: 20 }
+        ])
+        .setConflictColumns(['id'])
+        .setUpdateColumns(['points'])
+    )
+
+    expect(statement.sql).toBe(
+      'INSERT INTO player_statistics (id, playerId, points) VALUES (?, ?, ?), (?, ?, ?) ' +
+        'ON CONFLICT (id) DO UPDATE SET points = EXCLUDED.points'
+    )
+    expect(statement.bindings).toEqual([1, 1, 10, 2, 2, 20])
+  })
 })
