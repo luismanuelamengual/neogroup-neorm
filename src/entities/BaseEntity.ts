@@ -267,6 +267,23 @@ export abstract class BaseEntity {
   // ── Instance persistence (delegates) ─────────────────────────────────────────
 
   /**
+   * Inserts the given records in a single batch statement. Mirrors Eloquent's
+   * `Model::insert($values)`:
+   *
+   *   await Match.insert([
+   *     { roundId: 4, position: 0, homeCompetitorIds: [1], status: 0 },
+   *     { roundId: 4, position: 1, homeCompetitorIds: [2], status: 0 }
+   *   ])
+   *
+   * Values are expressed as entity properties and mapped to columns with their
+   * declared casts. Auto-generated columns are never written and generated keys
+   * are not read back. Returns the number of affected rows.
+   */
+  static async insert<T extends BaseEntity>(this: EntityClass<T>, values: Record<string, any>[]): Promise<number> {
+    return this._repo().insert(values)
+  }
+
+  /**
    * Inserts the given records, updating the conflicting columns when a row
    * already exists. Mirrors Eloquent's `Model::upsert($values, $uniqueBy, $update)`:
    *

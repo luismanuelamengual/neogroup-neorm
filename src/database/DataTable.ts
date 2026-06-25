@@ -93,9 +93,31 @@ export class DataTable {
     return { data, total, perPage, currentPage, lastPage, from, to }
   }
 
-  public async insert(fields?: DataSet): Promise<number> {
-    if (fields) {
-      this.setFields(fields)
+  /**
+   * Inserts a single record or a batch of records. Mirrors Eloquent's
+   * `DB::table('x')->insert($values)`, which accepts either one row or an array
+   * of rows and emits a single `INSERT INTO t (..) VALUES (..), (..)` statement:
+   *
+   *   await DB.table('users').insert({ name: 'Ada' })
+   *   await DB.table('users').insert([{ name: 'Ada' }, { name: 'Bob' }])
+   *
+   * For a batch the inserted columns are the union of the keys across every row;
+   * a row missing a column inserts NULL for it. Returns the number of affected
+   * rows. Generated primary keys are not read back (use save() for that).
+   */
+  public async insert(fields?: DataSet): Promise<number>
+  public async insert(rows: DataSet[]): Promise<number>
+  public async insert(data?: DataSet | DataSet[]): Promise<number> {
+    if (Array.isArray(data)) {
+      if (data.length === 0) {
+        return 0
+      }
+
+      return await this.source.execute(new InsertQuery().setTable(this._table).setRows(data))
+    }
+
+    if (data) {
+      this.setFields(data)
     }
 
     return await this.source.execute(this.createInsertQuery())

@@ -220,7 +220,28 @@ export class DefaultQueryBuilder extends QueryBuilder {
     }
   }
 
+  /**
+   * Resolves the rows an InsertQuery should write: the batch set via setRows()
+   * when present, otherwise the single record set via setFields(). The same
+   * code path serves single and batch inserts, so a one-element batch produces
+   * exactly the SQL a single insert used to.
+   */
+  protected collectInsertRows(query: InsertQuery): DataSet[] {
+    const rows = query.getRows()
+
+    if (rows && rows.length > 0) {
+      return rows
+    }
+
+    const fields = query.getFields()
+
+    return fields ? [fields] : []
+  }
+
   protected buildInsertQuery(query: InsertQuery, statement: Statement) {
+    const rows = this.collectInsertRows(query)
+    const columns = this.collectUpsertColumns(rows)
+
     statement.sql += DefaultQueryBuilder.INSERT
     statement.sql += DefaultQueryBuilder.SPACE
     statement.sql += DefaultQueryBuilder.INTO
@@ -228,39 +249,35 @@ export class DefaultQueryBuilder extends QueryBuilder {
     this.buildTable(query.getTable(), statement)
     statement.sql += DefaultQueryBuilder.SPACE
     statement.sql += DefaultQueryBuilder.PARENTHESIS_START
-    const fields = query.getFields()
-    let isFirst = true
-
-    for (const fieldName in fields) {
-      if (!isFirst) {
+    columns.forEach((column, index) => {
+      if (index > 0) {
         statement.sql += DefaultQueryBuilder.COMMA
         statement.sql += DefaultQueryBuilder.SPACE
       }
 
-      statement.sql += fieldName
-      isFirst = false
-    }
-
+      this.buildFieldName(column, statement)
+    })
     statement.sql += DefaultQueryBuilder.PARENTHESIS_END
     statement.sql += DefaultQueryBuilder.SPACE
     statement.sql += DefaultQueryBuilder.VALUES
     statement.sql += DefaultQueryBuilder.SPACE
-    statement.sql += DefaultQueryBuilder.PARENTHESIS_START
-    isFirst = true
-
-    for (const field in fields) {
-      const fieldValue = fields[field]
-
-      if (!isFirst) {
+    rows.forEach((row, rowIndex) => {
+      if (rowIndex > 0) {
         statement.sql += DefaultQueryBuilder.COMMA
         statement.sql += DefaultQueryBuilder.SPACE
       }
 
-      this.buildColumnValue(fieldValue, statement)
-      isFirst = false
-    }
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_START
+      columns.forEach((column, columnIndex) => {
+        if (columnIndex > 0) {
+          statement.sql += DefaultQueryBuilder.COMMA
+          statement.sql += DefaultQueryBuilder.SPACE
+        }
 
-    statement.sql += DefaultQueryBuilder.PARENTHESIS_END
+        this.buildColumnValue(column in row ? row[column] : null, statement)
+      })
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_END
+    })
   }
 
   protected buildUpdateQuery(query: UpdateQuery, statement: Statement) {

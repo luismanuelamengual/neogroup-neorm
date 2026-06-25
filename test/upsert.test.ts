@@ -1,4 +1,4 @@
-import { BaseEntity, Column, DB, Entity, SqliteDataSource } from '../src'
+import { BaseEntity, Column, DB, Entity, SqliteDataSource, SqliteQueryBuilder, UpsertQuery } from '../src'
 
 // ─── Model ───────────────────────────────────────────────────────────────────
 
@@ -145,5 +145,99 @@ describe('Upsert — insert or update on conflict', () => {
 
     expect(row!.points).toBe(2)
     expect(row!.matches).toBe(3)
+  })
+
+  // ─── BATCH upsert (insert + update in a single statement) ──────────────────
+
+  test('a batch UpsertQuery builds one multi-row INSERT ... ON CONFLICT statement', () => {
+    const statement = new SqliteQueryBuilder().buildQuery(
+      new UpsertQuery('player_statistics')
+        .setRows([
+          { playerId: 1, points: 10 },
+          { playerId: 2, points: 20 },
+          { playerId: 3, points: 30 }
+        ])
+        .setConflictColumns(['playerId'])
+        .setUpdateColumns(['points'])
+    )
+
+    expect(statement.sql).toBe(
+      'INSERT INTO player_statistics (playerId, points) VALUES (?, ?), (?, ?), (?, ?) ' +
+        'ON CONFLICT (playerId) DO UPDATE SET points = EXCLUDED.points'
+    )
+    expect(statement.bindings).toEqual([1, 10, 2, 20, 3, 30])
+  })
+
+  test('DataTable.upsert inserts and updates within the same batch call', async () => {
+    // Seed one existing row.
+    await DB.table('player_statistics').upsert([{ playerId: 1, points: 10, matches: 1 }], 'playerId')
+
+    // Single batch: playerId 1 conflicts (→ update), playerId 2 & 3 are new (→ insert).
+    await DB.table('player_statistics').upsert(
+      [
+        { playerId: 1, points: 99, matches: 9 },
+        { playerId: 2, points: 20, matches: 2 },
+        { playerId: 3, points: 30, matches: 3 }
+      ],
+      'playerId',
+      ['points', 'matches']
+    )
+
+    const rows = await DB.table('player_statistics').orderBy('playerId').get()
+
+    expect(rows).toHaveLength(3)
+    expect(rows.map((r) => Number(r.playerId))).toEqual([1, 2, 3])
+    expect(rows.map((r) => Number(r.points))).toEqual([99, 20, 30])
+    expect(rows.map((r) => Number(r.matches))).toEqual([9, 2, 3])
+  })
+
+  test('DataTable.upsert respects the update column list across the whole batch', async () => {
+    await DB.table('player_statistics').upsert(
+      [
+        { playerId: 1, points: 10, matches: 5 },
+        { playerId: 2, points: 20, matches: 6 }
+      ],
+      'playerId'
+    )
+
+    // Re-upsert the same keys updating only `points`; `matches` must be preserved.
+    await DB.table('player_statistics').upsert(
+      [
+        { playerId: 1, points: 111, matches: 0 },
+        { playerId: 2, points: 222, matches: 0 }
+      ],
+      'playerId',
+      ['points']
+    )
+
+    const rows = await DB.table('player_statistics').orderBy('playerId').get()
+
+    expect(rows.map((r) => Number(r.points))).toEqual([111, 222])
+    expect(rows.map((r) => Number(r.matches))).toEqual([5, 6])
+  })
+
+  test('Entity.upsert handles a mixed insert/update batch and applies casts', async () => {
+    const seeded = new Date('2026-06-23T10:00:00.000Z')
+    const updated = new Date('2026-06-25T10:00:00.000Z')
+
+    await PlayerStatistics.upsert([{ playerId: 7, points: 100, matches: 5, updatedAt: seeded }], 'playerId')
+
+    await PlayerStatistics.upsert(
+      [
+        { playerId: 7, points: 250, matches: 9, updatedAt: updated }, // existing → update
+        { playerId: 8, points: 40, matches: 2, updatedAt: updated }, // new → insert
+        { playerId: 9, points: 60, matches: 4, updatedAt: updated } // new → insert
+      ],
+      'playerId',
+      ['points', 'matches', 'updatedAt']
+    )
+
+    const rows = await PlayerStatistics.orderBy('playerId').get()
+
+    expect(rows).toHaveLength(3)
+    expect(rows.map((r) => r.playerId)).toEqual([7, 8, 9])
+    expect(rows.map((r) => r.points)).toEqual([250, 40, 60])
+    expect(rows[0].updatedAt).toBeInstanceOf(Date)
+    expect(rows[0].updatedAt.getTime()).toBe(updated.getTime())
   })
 })
