@@ -124,6 +124,7 @@ export class DataConnection {
       await this.commitTransaction()
     } catch (e) {
       await this.rollbackTransaction()
+      throw e
     }
   }
 }

@@ -563,8 +563,12 @@ export class EntityRepository<T> {
         .where(pk, (instance as any)[pkProp])
         .update(updateRow)
     } else {
-      // INSERT — read back the generated ID
-      const conn = await source.getConnection()
+      // INSERT — read back the generated ID. When a transaction is in progress
+      // for this source, reuse its connection (so the INSERT and the lastInsertId
+      // read are part of the transaction) and leave its lifecycle to the
+      // transaction; otherwise open and close a one-off connection.
+      const active = source.getActiveConnection()
+      const conn = active ?? (await source.getConnection())
 
       try {
         await conn.execute(new InsertQuery().setTable(this.table).setFields(row))
@@ -573,7 +577,9 @@ export class EntityRepository<T> {
           ;(instance as any)[pkProp] = await conn.lastInsertId()
         }
       } finally {
-        await conn.close()
+        if (!active) {
+          await conn.close()
+        }
       }
     }
   }

@@ -420,27 +420,17 @@ export abstract class DB {
   public static query(sql: string, bindings?: Array<any>): Promise<Array<DataSet>>
   public static query(query: Query): Promise<Array<DataSet>>
   public static async query(): Promise<Array<DataSet>> {
-    const conn = await this.connection()
-
-    try {
-      // @ts-ignore
-      return await conn.query(...arguments)
-    } finally {
-      await conn.close()
-    }
+    // Delegate to the active source so an in-progress transaction (if any) is honoured.
+    // @ts-ignore
+    return this._activeSource.query(...arguments)
   }
 
   public static execute(sql: string, bindings?: Array<any>): Promise<number>
   public static execute(query: Query): Promise<number>
   public static async execute(): Promise<number> {
-    const conn = await this.connection()
-
-    try {
-      // @ts-ignore
-      return await conn.execute(...arguments)
-    } finally {
-      await conn.close()
-    }
+    // Delegate to the active source so an in-progress transaction (if any) is honoured.
+    // @ts-ignore
+    return this._activeSource.execute(...arguments)
   }
 
   // ── Transactions ────────────────────────────────────────────────────────────
@@ -459,6 +449,16 @@ export abstract class DB {
 
   public static async executeTransaction(callback: (connection: DataConnection) => Promise<void>): Promise<void> {
     return this.withConnection((conn) => conn.executeTransaction(callback))
+  }
+
+  /**
+   * Runs `callback` inside a database transaction on the active source. Entity
+   * and query operations performed within the callback share a single connection
+   * and are committed atomically; a thrown error rolls everything back and is
+   * re-thrown. See `DataSource.transaction`.
+   */
+  public static transaction<T>(callback: (connection: DataConnection) => Promise<T>): Promise<T> {
+    return this._activeSource.transaction(callback)
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────
