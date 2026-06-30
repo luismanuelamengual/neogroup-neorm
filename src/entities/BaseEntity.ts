@@ -313,6 +313,28 @@ export abstract class BaseEntity {
     await Repository.get(this.constructor as any).delete(this)
   }
 
+  // ── Dirty tracking (delegates) ───────────────────────────────────────────────
+
+  /**
+   * True if this entity (or, when given, a specific property) has unsaved
+   * changes relative to its last hydration/save.
+   *
+   *   user.email = 'new@x.com'
+   *   user.isDirty()          // true
+   *   user.isDirty('name')    // false
+   */
+  isDirty(field?: string): boolean {
+    return Repository.get(this.constructor as any).isDirty(this, field)
+  }
+
+  /**
+   * Returns a `{ property: value }` map of only the properties that changed
+   * since this entity's last hydration/save.
+   */
+  getDirty(): Record<string, any> {
+    return Repository.get(this.constructor as any).getDirty(this)
+  }
+
   // ── Serialization ────────────────────────────────────────────────────────────
 
   toDto(): Record<string, any> {

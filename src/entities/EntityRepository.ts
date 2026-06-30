@@ -96,8 +96,17 @@ export function bootEntityClass(entityClass: any): void {
   }
 }
 
-// ── Repository cache ──────────────────────────────────────────────────────────
+// ── Dirty tracking ────────────────────────────────────────────────────────────
 
+/**
+ * instance → snapshot of property values as of the last hydration (fromRow /
+ * fromJSON) or save(). Used to compute which fields actually changed so that
+ * save() only UPDATEs the columns that are dirty. A WeakMap means snapshots
+ * are garbage-collected automatically once the entity instance is no longer
+ * referenced — no manual cleanup required.
+ */
+const _cleanSnapshots = new WeakMap<object, Record<string, any>>()
+// ── Repository cache ──────────────────────────────────────────────────────────
 const _repoCache = new Map<any, EntityRepository<any>>()
 
 /**
@@ -227,7 +236,131 @@ export class EntityRepository<T> {
       instance[prop] = cast ? applyCast(rawValue, cast) : rawValue
     }
 
+    this._markClean(instance)
+
     return instance
+  }
+
+  // ── Dirty tracking ──────────────────────────────────────────────────────────
+
+  /** The set of property names tracked for dirty-checking on a given instance. */
+  private _trackedFields(instance: T): string[] {
+    const fieldNames = this.fields
+
+    return fieldNames.length > 0
+      ? fieldNames
+      : Object.keys(instance as any).filter((k) => typeof (instance as any)[k] !== 'function')
+  }
+
+  /** Deep-clones a value so later in-place mutations don't corrupt the clean snapshot. */
+  private _cloneValue(value: any): any {
+    if (value instanceof Date) {
+      return new Date(value.getTime())
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this._cloneValue(item))
+    }
+
+    if (value !== null && typeof value === 'object') {
+      try {
+        return JSON.parse(JSON.stringify(value))
+      } catch {
+        return value
+      }
+    }
+
+    return value
+  }
+
+  /** Value-equality used for dirty checks: handles Date and plain object/array (json/array casts). */
+  private _valuesEqual(a: any, b: any): boolean {
+    if (a === b) {
+      return true
+    }
+
+    if (a instanceof Date && b instanceof Date) {
+      return a.getTime() === b.getTime()
+    }
+
+    if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
+      return JSON.stringify(a) === JSON.stringify(b)
+    }
+
+    return false
+  }
+
+  /**
+   * Snapshots the instance's current field values as "clean" — the baseline
+   * against which future changes are compared. Called after hydration
+   * (fromRow / fromJSON) and after every save().
+   */
+  private _markClean(instance: T): void {
+    const snapshot: Record<string, any> = {}
+
+    for (const prop of this._trackedFields(instance)) {
+      const value = (instance as any)[prop]
+
+      if (value !== undefined) {
+        snapshot[prop] = this._cloneValue(value)
+      }
+    }
+
+    _cleanSnapshots.set(instance as any, snapshot)
+  }
+
+  /**
+   * Returns the property names whose current value differs from the last
+   * clean snapshot (or every set property, if the instance was never
+   * hydrated/saved — e.g. a brand-new `new User()`).
+   */
+  private _dirtyFields(instance: T): string[] {
+    const snapshot = _cleanSnapshots.get(instance as any)
+    const dirty: string[] = []
+
+    for (const prop of this._trackedFields(instance)) {
+      const value = (instance as any)[prop]
+
+      if (value === undefined) {
+        continue
+      }
+
+      if (snapshot && prop in snapshot && this._valuesEqual(snapshot[prop], value)) {
+        continue
+      }
+
+      dirty.push(prop)
+    }
+
+    return dirty
+  }
+
+  /**
+   * True if the instance (or, when given, a specific property) has unsaved
+   * changes relative to its last hydration/save.
+   *
+   *   user.email = 'new@x.com'
+   *   Repository.get(User).isDirty(user)          // true
+   *   Repository.get(User).isDirty(user, 'name')   // false
+   */
+  isDirty(instance: T, field?: string): boolean {
+    const dirty = this._dirtyFields(instance)
+
+    return field ? dirty.includes(field) : dirty.length > 0
+  }
+
+  /**
+   * Returns a `{ property: value }` map of only the properties that changed
+   * since the instance's last hydration/save.
+   */
+  getDirty(instance: T): Record<string, any> {
+    const result: Record<string, any> = {}
+
+    for (const prop of this._dirtyFields(instance)) {
+      result[prop] = (instance as any)[prop]
+    }
+
+    return result
   }
 
   // ── Serialization ────────────────────────────────────────────────────────────
@@ -297,6 +430,8 @@ export class EntityRepository<T> {
 
       this._assign(instance, key, cast ? applyCast(value, cast) : this._reviveValue(value))
     }
+
+    this._markClean(instance)
 
     return instance
   }
@@ -518,26 +653,36 @@ export class EntityRepository<T> {
 
   /**
    * Persists an entity instance to the database.
-   * - Primary key set   → UPDATE (auto-generated columns excluded from SET).
+   * - Primary key set   → UPDATE. Only properties that changed since the last
+   *                       hydration/save (the "dirty" fields) are written —
+   *                       untouched columns are left out of the SET clause
+   *                       entirely. If nothing is dirty, no query is issued.
    * - Primary key unset → INSERT (auto-generated columns excluded; generated
    *                       PK is written back onto the instance).
+   *
+   * After a successful save, every written field is marked clean again, so a
+   * subsequent save() only touches whatever changes next:
+   *
+   *   user.email = 'new@x.com'
+   *   await user.save()   // UPDATE users SET email = 'new@x.com' WHERE id = ?
+   *   await user.save()   // nothing dirty — no query issued
    */
   async save(instance: T): Promise<void> {
     const pk = this.primaryKey
-    const fieldNames = this.fields
     const autoGeneratedFields = this.autoGeneratedFields
     const castsMap = this.casts
     const columnsMap = this.columnsMap
     const pkProp = Object.keys(columnsMap).find((p) => columnsMap[p] === pk) ?? pk
     const source = this.getSource()
+    const isUpdate = (instance as any)[pkProp] != null
+    // On UPDATE only the properties that changed since the last hydration/save
+    // are written. On INSERT there is no prior snapshot, so every set property
+    // is written — matching the previous (always-write-everything) behaviour.
+    const propsToWrite = isUpdate ? this._dirtyFields(instance) : this._trackedFields(instance)
     // Build the column→value row, skipping auto-generated columns
     const row: DataSet = {}
-    const cols =
-      fieldNames.length > 0
-        ? fieldNames
-        : Object.keys(instance as any).filter((k) => typeof (instance as any)[k] !== 'function')
 
-    for (const col of cols) {
+    for (const col of propsToWrite) {
       if (autoGeneratedFields.includes(col)) {
         continue
       }
@@ -553,15 +698,18 @@ export class EntityRepository<T> {
       row[columnsMap[col] ?? col] = cast ? applyCastForStorage(value, cast) : value
     }
 
-    if ((instance as any)[pkProp] != null) {
+    if (isUpdate) {
       // UPDATE — exclude PK from SET clause
       const updateRow = { ...row }
 
       delete updateRow[pk]
-      await source
-        .table(this.table)
-        .where(pk, (instance as any)[pkProp])
-        .update(updateRow)
+
+      if (Object.keys(updateRow).length > 0) {
+        await source
+          .table(this.table)
+          .where(pk, (instance as any)[pkProp])
+          .update(updateRow)
+      }
     } else {
       // INSERT — read back the generated ID. When a transaction is in progress
       // for this source, reuse its connection (so the INSERT and the lastInsertId
@@ -582,6 +730,9 @@ export class EntityRepository<T> {
         }
       }
     }
+
+    // Every field is now in sync with the database — reset the dirty baseline.
+    this._markClean(instance)
   }
 
   /**
