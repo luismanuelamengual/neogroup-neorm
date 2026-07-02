@@ -2,13 +2,14 @@ import { Connection } from '../../Connection'
 import { DataSource } from '../../DataSource'
 import { SqliteConnection } from './SqliteConnection'
 import { SqliteQueryBuilder } from './SqliteQueryBuilder'
+import { SqliteSchemaGrammar } from './SqliteSchemaGrammar'
 
 export class SqliteDataSource extends DataSource {
   private db: any
   private filename: string
 
   constructor() {
-    super(new SqliteQueryBuilder())
+    super(new SqliteQueryBuilder(), new SqliteSchemaGrammar())
     this.filename = ':memory:'
   }
 

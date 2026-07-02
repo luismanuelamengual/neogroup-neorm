@@ -34,6 +34,14 @@ A lightweight, fluent TypeScript library for interacting with relational databas
   - [Table alias](#table-alias)
 - [INSERT, UPDATE, DELETE](#insert-update-delete)
 - [Raw queries](#raw-queries)
+- [Schema builder (migrations)](#schema-builder-migrations)
+  - [Creating tables](#creating-tables)
+  - [Column types](#column-types)
+  - [Column modifiers](#column-modifiers)
+  - [Indexes & foreign keys](#indexes--foreign-keys)
+  - [Updating tables](#updating-tables)
+  - [Dropping & renaming](#dropping--renaming)
+  - [Engine-aware types](#engine-aware-types)
 - [Advanced queries with SelectQuery](#advanced-queries-with-selectquery)
   - [UNION / UNION ALL](#union--union-all)
   - [Subqueries](#subqueries)
@@ -678,6 +686,146 @@ To target a specific source, use `DB.source()`:
 ```typescript
 const rows = await DB.source('reporting').query('SELECT * FROM analytics')
 ```
+
+---
+
+## Schema builder (migrations)
+
+The `Schema` facade creates, alters and drops tables through a fluent, database-agnostic API modelled after Laravel's `Schema`. You describe a table once and NeORM compiles it to the right DDL for the active source — SERIAL/BIGSERIAL and native `INTEGER[]`/`JSONB` on PostgreSQL, `AUTO_INCREMENT`/backtick identifiers/`JSON` on MySQL, and `INTEGER PRIMARY KEY AUTOINCREMENT`/`TEXT` on SQLite. The engine is resolved from the active `DataSource`, so the same migration runs everywhere.
+
+```typescript
+import { Schema } from '@neogroup/neorm'
+```
+
+### Creating tables
+
+`Schema.create()` receives the table name and a callback that configures a `Blueprint`. Each column method returns a `ColumnDefinition` you can chain modifiers on:
+
+```typescript
+await Schema.create('oauth_access_tokens', (table) => {
+  table.string('id', 100).primary()
+  table.unsignedBigInteger('userId').index()
+  table.integer('clientId')
+  table.text('scopes').nullable()
+  table.boolean('revoked').default(false)
+  table.dateTime('expiresAt').nullable()
+})
+```
+
+Use `createIfNotExists()` to emit `CREATE TABLE IF NOT EXISTS` (handy for idempotent migrations):
+
+```typescript
+await Schema.createIfNotExists('users', (table) => {
+  table.increments('id')
+  table.string('email', 255)
+  table.timestamp('createdAt').useCurrent()
+})
+```
+
+### Column types
+
+Columns are **NOT NULL by default** (call `.nullable()` to allow nulls), exactly like Laravel.
+
+| Method                          | PostgreSQL         | MySQL                     | SQLite                          |
+|---------------------------------|--------------------|---------------------------|---------------------------------|
+| `increments('id')`              | `SERIAL PRIMARY KEY` | `INT UNSIGNED AUTO_INCREMENT PRIMARY KEY` | `INTEGER PRIMARY KEY AUTOINCREMENT` |
+| `bigIncrements('id')` / `id()`  | `BIGSERIAL PRIMARY KEY` | `BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY` | `INTEGER PRIMARY KEY AUTOINCREMENT` |
+| `string(name, length = 255)`    | `VARCHAR(n)`       | `VARCHAR(n)`              | `VARCHAR(n)`                    |
+| `char(name, length)`            | `CHAR(n)`          | `CHAR(n)`                 | `CHAR(n)`                       |
+| `text(name)`                    | `TEXT`             | `TEXT`                    | `TEXT`                          |
+| `integer(name)`                 | `INTEGER`          | `INT`                     | `INTEGER`                       |
+| `unsignedInteger(name)`         | `INTEGER`          | `INT UNSIGNED`            | `INTEGER`                       |
+| `bigInteger(name)`              | `BIGINT`           | `BIGINT`                  | `INTEGER`                       |
+| `unsignedBigInteger(name)`      | `BIGINT`           | `BIGINT UNSIGNED`         | `INTEGER`                       |
+| `smallInteger` / `tinyInteger`  | `SMALLINT`         | `SMALLINT` / `TINYINT`    | `INTEGER`                       |
+| `boolean(name)`                 | `BOOLEAN`          | `TINYINT(1)`              | `INTEGER`                       |
+| `float(name)`                   | `REAL`             | `FLOAT`                   | `REAL`                          |
+| `double(name)`                  | `DOUBLE PRECISION` | `DOUBLE`                  | `REAL`                          |
+| `decimal(name, total, places)`  | `NUMERIC(t, p)`    | `DECIMAL(t, p)`           | `NUMERIC(t, p)`                 |
+| `date` / `time`                 | `DATE` / `TIME`    | `DATE` / `TIME`           | `DATE` / `TIME`                 |
+| `dateTime(name)`                | `TIMESTAMP`        | `DATETIME`                | `TIMESTAMP`                     |
+| `timestamp(name)`               | `TIMESTAMP`        | `TIMESTAMP`               | `TIMESTAMP`                     |
+| `json(name)`                    | `JSON`             | `JSON`                    | `TEXT`                          |
+| `jsonb(name)`                   | `JSONB`            | `JSON`                    | `TEXT`                          |
+| `uuid(name)`                    | `UUID`             | `CHAR(36)`                | `TEXT`                          |
+| `integerArray(name)`            | `INTEGER[]`        | `JSON`                    | `TEXT`                          |
+
+`table.timestamps()` adds nullable `createdAt` / `updatedAt` columns in one call.
+
+### Column modifiers
+
+Chainable on any column:
+
+```typescript
+table.string('email', 255).nullable()        // allow NULL
+table.integer('status').default(1)            // DEFAULT literal
+table.boolean('active').default(true)         // engine boolean literal (true / 1)
+table.integerArray('roles').default([])       // '{}' on Postgres, '[]' on SQLite
+table.timestamp('createdAt').useCurrent()     // DEFAULT CURRENT_TIMESTAMP
+table.string('slug', 120).unique()            // single-column UNIQUE
+table.unsignedBigInteger('userId').index()    // single-column index
+table.string('id', 100).primary()             // add to primary key
+table.default(Schema.raw('NOW()'))            // raw SQL default
+```
+
+`.notNullable()`, `.unsigned()`, `.comment()`, `.after()` and `.change()` are also available.
+
+### Indexes & foreign keys
+
+Declare them at the blueprint level. Foreign keys are emitted **inline** in `CREATE TABLE`, so they work on SQLite too:
+
+```typescript
+await Schema.create('tournaments', (table) => {
+  table.increments('id')
+  table.integer('organizationId')
+  table.integer('ownerId')
+  table.string('name', 150)
+
+  // composite unique + named index
+  table.unique(['organizationId', 'name'])
+  table.index('organizationId', 'idx_tournaments_org')
+
+  // foreign keys
+  table.foreign('organizationId').references('id').on('organizations')
+  table.foreign('ownerId').references('id').on('users').onDelete('cascade')
+})
+```
+
+`onDelete()` / `onUpdate()` accept any action (`'cascade'`, `'set null'`, `'restrict'`, …). Shortcuts: `cascadeOnDelete()`, `nullOnDelete()`, `restrictOnDelete()`, `cascadeOnUpdate()`. Pass an explicit name as the second argument of `index()` / `unique()` / `foreign()` or via `.name(...)`.
+
+### Updating tables
+
+`Schema.table()` alters an existing table — add or drop columns, add indexes/foreign keys, rename columns:
+
+```typescript
+await Schema.table('users', (table) => {
+  table.string('nickname', 100).nullable()                     // ADD COLUMN
+  table.integer('loginCount').default(0)
+  table.foreign('roleId').references('id').on('roles')         // ADD CONSTRAINT … FOREIGN KEY
+  table.renameColumn('phone', 'phoneNumber')                   // RENAME COLUMN
+  table.dropColumn('legacyField')                              // DROP COLUMN
+})
+```
+
+> **SQLite note:** SQLite's `ALTER TABLE` is limited — adding a foreign key, dropping a constraint, or changing a column in place is not supported and raises a clear error. Declare those inside `Schema.create()` instead.
+
+### Dropping & renaming
+
+```typescript
+await Schema.drop('some_table')
+await Schema.dropIfExists('temp_table')
+await Schema.rename('old_name', 'new_name')
+
+if (await Schema.hasTable('users')) {
+  // …
+}
+```
+
+Every `Schema` call runs on the active source and honours any in-progress transaction. Target a specific source with `Schema.connection('reporting').create(...)`.
+
+### Engine-aware types
+
+`integerArray()`, `json()`/`jsonb()` and `boolean()` are the key to portable migrations: a list column becomes native `INTEGER[]` on PostgreSQL but JSON-encoded `TEXT` on SQLite, and the `array`/`json` entity casts read it back transparently. This lets a single migration file target PostgreSQL in production and SQLite in tests without branching on the driver.
 
 ---
 

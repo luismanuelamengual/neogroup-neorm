@@ -3,15 +3,23 @@ import { DataConnection } from './DataConnection'
 import { DataSet } from './DataSet'
 import { DataTable } from './DataTable'
 import { DefaultQueryBuilder, Query, QueryBuilder } from './query'
+import { DefaultSchemaGrammar, SchemaGrammar } from './schema/grammars'
 import { getTransactionStore, runWithTransactionStore, TransactionStore } from './transactionStorage'
 
 export abstract class DataSource {
   protected debug = false
   protected readonly = false
   protected queryBuilder: QueryBuilder
+  protected schemaGrammar: SchemaGrammar
 
-  constructor(queryBuilder?: QueryBuilder) {
+  constructor(queryBuilder?: QueryBuilder, schemaGrammar?: SchemaGrammar) {
     this.queryBuilder = queryBuilder ?? new DefaultQueryBuilder()
+    this.schemaGrammar = schemaGrammar ?? new DefaultSchemaGrammar()
+  }
+
+  /** The schema grammar used to compile Blueprints into DDL for this engine. */
+  public getSchemaGrammar(): SchemaGrammar {
+    return this.schemaGrammar
   }
 
   public setDebugEnabled(debug: boolean) {

@@ -2,6 +2,7 @@ import { Connection } from '../../Connection'
 import { DataSource } from '../../DataSource'
 import { PostgresConnection } from './PostgresConnection'
 import { PostgresQueryBuilder } from './PostgresQueryBuilder'
+import { PostgresSchemaGrammar } from './PostgresSchemaGrammar'
 
 export class PostgresDataSource extends DataSource {
   private lib: any
@@ -13,7 +14,7 @@ export class PostgresDataSource extends DataSource {
   private password: string
 
   constructor() {
-    super(new PostgresQueryBuilder())
+    super(new PostgresQueryBuilder(), new PostgresSchemaGrammar())
 
     try {
       this.lib = require('pg')

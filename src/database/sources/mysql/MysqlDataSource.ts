@@ -2,6 +2,7 @@ import { Connection } from '../../Connection'
 import { DataSource } from '../../DataSource'
 import { MysqlConnection } from './MysqlConnection'
 import { MysqlQueryBuilder } from './MysqlQueryBuilder'
+import { MysqlSchemaGrammar } from './MysqlSchemaGrammar'
 
 export class MysqlDataSource extends DataSource {
   private lib: any
@@ -13,7 +14,7 @@ export class MysqlDataSource extends DataSource {
   private password: string
 
   constructor() {
-    super(new MysqlQueryBuilder())
+    super(new MysqlQueryBuilder(), new MysqlSchemaGrammar())
 
     try {
       this.lib = require('mysql2/promise')
