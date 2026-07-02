@@ -373,8 +373,16 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
     return columns.map((column) => this.wrap(column)).join(', ')
   }
 
+  /**
+   * Emits an identifier unquoted, matching the query builder convention used
+   * across neorm (DefaultQueryBuilder / PostgresQueryBuilder do not quote
+   * identifiers). This keeps DDL and DML in agreement: on PostgreSQL an
+   * unquoted mixed-case identifier folds to lower case, so a column created
+   * here is found by the (also unquoted) INSERT/SELECT statements. MySQL
+   * overrides this to use backticks.
+   */
   protected wrap(name: string): string {
-    return `"${name.replace(/"/g, '""')}"`
+    return name
   }
 
   protected wrapTable(table: string): string {

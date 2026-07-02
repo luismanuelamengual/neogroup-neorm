@@ -39,16 +39,16 @@ describe('Schema — compilación DDL agnóstica', () => {
     const [create, index] = buildCreate(postgres, 'oauth_access_tokens', oauth)
 
     expect(create).toBe(
-      'CREATE TABLE "oauth_access_tokens" (' +
-        '"id" VARCHAR(100) NOT NULL, ' +
-        '"userId" BIGINT NOT NULL, ' +
-        '"clientId" INTEGER NOT NULL, ' +
-        '"scopes" TEXT, ' +
-        '"revoked" BOOLEAN NOT NULL DEFAULT false, ' +
-        '"expiresAt" TIMESTAMP, ' +
-        'PRIMARY KEY ("id"))'
+      'CREATE TABLE oauth_access_tokens (' +
+        'id VARCHAR(100) NOT NULL, ' +
+        'userId BIGINT NOT NULL, ' +
+        'clientId INTEGER NOT NULL, ' +
+        'scopes TEXT, ' +
+        'revoked BOOLEAN NOT NULL DEFAULT false, ' +
+        'expiresAt TIMESTAMP, ' +
+        'PRIMARY KEY (id))'
     )
-    expect(index).toBe('CREATE INDEX "oauth_access_tokens_userid_index" ON "oauth_access_tokens" ("userId")')
+    expect(index).toBe('CREATE INDEX oauth_access_tokens_userid_index ON oauth_access_tokens (userId)')
   })
 
   it('genera CREATE TABLE para MySQL (backticks, TINYINT, UNSIGNED)', () => {
@@ -70,14 +70,14 @@ describe('Schema — compilación DDL agnóstica', () => {
     const [create] = buildCreate(sqlite, 'oauth_access_tokens', oauth)
 
     expect(create).toBe(
-      'CREATE TABLE "oauth_access_tokens" (' +
-        '"id" VARCHAR(100) NOT NULL, ' +
-        '"userId" INTEGER NOT NULL, ' +
-        '"clientId" INTEGER NOT NULL, ' +
-        '"scopes" TEXT, ' +
-        '"revoked" INTEGER NOT NULL DEFAULT 0, ' +
-        '"expiresAt" TIMESTAMP, ' +
-        'PRIMARY KEY ("id"))'
+      'CREATE TABLE oauth_access_tokens (' +
+        'id VARCHAR(100) NOT NULL, ' +
+        'userId INTEGER NOT NULL, ' +
+        'clientId INTEGER NOT NULL, ' +
+        'scopes TEXT, ' +
+        'revoked INTEGER NOT NULL DEFAULT 0, ' +
+        'expiresAt TIMESTAMP, ' +
+        'PRIMARY KEY (id))'
     )
   })
 
@@ -97,24 +97,22 @@ describe('Schema — compilación DDL agnóstica', () => {
   it('PostgreSQL: SERIAL, INTEGER[], JSONB, CURRENT_TIMESTAMP, FK y UNIQUE', () => {
     const [create, index] = buildCreate(postgres, 'users', richTable)
 
-    expect(create).toContain('"id" SERIAL PRIMARY KEY')
-    expect(create).toContain('"roles" INTEGER[] NOT NULL DEFAULT \'{}\'')
-    expect(create).toContain('"settings" JSONB')
-    expect(create).toContain('"createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP')
-    expect(create).toContain('UNIQUE ("organizationId", "email")')
-    expect(create).toContain(
-      'FOREIGN KEY ("organizationId") REFERENCES "organizations" ("id") ON DELETE CASCADE'
-    )
-    expect(index).toBe('CREATE INDEX "idx_users_org" ON "users" ("organizationId")')
+    expect(create).toContain('id SERIAL PRIMARY KEY')
+    expect(create).toContain("roles INTEGER[] NOT NULL DEFAULT '{}'")
+    expect(create).toContain('settings JSONB')
+    expect(create).toContain('createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP')
+    expect(create).toContain('UNIQUE (organizationId, email)')
+    expect(create).toContain('FOREIGN KEY (organizationId) REFERENCES organizations (id) ON DELETE CASCADE')
+    expect(index).toBe('CREATE INDEX idx_users_org ON users (organizationId)')
   })
 
   it('SQLite: INTEGER PRIMARY KEY AUTOINCREMENT, TEXT arrays y JSON', () => {
     const [create] = buildCreate(sqlite, 'users', richTable)
 
-    expect(create).toContain('"id" INTEGER PRIMARY KEY AUTOINCREMENT')
-    expect(create).toContain('"roles" TEXT NOT NULL DEFAULT \'[]\'')
-    expect(create).toContain('"settings" TEXT')
-    expect(create).toContain('"createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP')
+    expect(create).toContain('id INTEGER PRIMARY KEY AUTOINCREMENT')
+    expect(create).toContain("roles TEXT NOT NULL DEFAULT '[]'")
+    expect(create).toContain('settings TEXT')
+    expect(create).toContain('createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP')
   })
 
   it('MySQL: INT UNSIGNED AUTO_INCREMENT y JSON', () => {
@@ -126,8 +124,8 @@ describe('Schema — compilación DDL agnóstica', () => {
   })
 
   it('compila DROP, ALTER (add/drop column) y foreign en ALTER', () => {
-    expect(postgres.compileDrop('t')).toBe('DROP TABLE "t"')
-    expect(postgres.compileDropIfExists('t')).toBe('DROP TABLE IF EXISTS "t"')
+    expect(postgres.compileDrop('t')).toBe('DROP TABLE t')
+    expect(postgres.compileDropIfExists('t')).toBe('DROP TABLE IF EXISTS t')
 
     const alter = new Blueprint('posts', 'alter')
 
@@ -137,9 +135,9 @@ describe('Schema — compilación DDL agnóstica', () => {
 
     const statements = postgres.compileAlter(alter)
 
-    expect(statements).toContain('ALTER TABLE "posts" ADD COLUMN "views" INTEGER NOT NULL DEFAULT 0')
-    expect(statements).toContain('ALTER TABLE "posts" DROP COLUMN "legacy"')
-    expect(statements.some((s) => s.includes('ADD CONSTRAINT') && s.includes('FOREIGN KEY ("authorId")'))).toBe(true)
+    expect(statements).toContain('ALTER TABLE posts ADD COLUMN views INTEGER NOT NULL DEFAULT 0')
+    expect(statements).toContain('ALTER TABLE posts DROP COLUMN legacy')
+    expect(statements.some((s) => s.includes('ADD CONSTRAINT') && s.includes('FOREIGN KEY (authorId)'))).toBe(true)
   })
 
   it('SQLite rechaza operaciones no soportadas (FK en ALTER, change de columna)', () => {
