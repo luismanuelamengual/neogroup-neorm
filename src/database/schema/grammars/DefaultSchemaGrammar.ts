@@ -18,9 +18,18 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
     const body = [...columns, ...constraints].join(', ')
     const ifNotExists = blueprint.wantsIfNotExists() ? 'IF NOT EXISTS ' : ''
     const statements = [`CREATE TABLE ${ifNotExists}${this.wrapTable(blueprint.getTable())} (${body})`]
+    // A createIfNotExists() blueprint is meant to be safely re-run against a
+    // database that may already have the table (and therefore its indexes):
+    // the CREATE TABLE above already carries IF NOT EXISTS, so the trailing
+    // CREATE INDEX statements must be just as idempotent, or re-running the
+    // migration throws "index already exists" even though nothing actually
+    // needed to change. Engines without IF NOT EXISTS support for indexes
+    // (MySQL) override createIndexSql and ignore the flag — see the
+    // class-level note on MysqlSchemaGrammar.
+    const indexesIfNotExists = blueprint.wantsIfNotExists()
 
     for (const index of this.collectIndexes(blueprint)) {
-      statements.push(this.createIndexSql(blueprint.getTable(), index.columns, index.name))
+      statements.push(this.createIndexSql(blueprint.getTable(), index.columns, index.name, false, indexesIfNotExists))
     }
 
     return statements
@@ -84,7 +93,9 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
       case 'dropColumn':
         return command.columns.map((c) => `ALTER TABLE ${this.wrapTable(table)} DROP COLUMN ${this.wrap(c)}`)
       case 'renameColumn':
-        return [`ALTER TABLE ${this.wrapTable(table)} RENAME COLUMN ${this.wrap(command.from)} TO ${this.wrap(command.to)}`]
+        return [
+          `ALTER TABLE ${this.wrapTable(table)} RENAME COLUMN ${this.wrap(command.from)} TO ${this.wrap(command.to)}`
+        ]
       case 'dropIndex':
       case 'dropUnique':
         return [this.compileDropIndex(table, command.index)]
@@ -330,12 +341,26 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
     return indexes
   }
 
-  protected createIndexSql(table: string, columns: string[], name?: string, unique = false): string {
+  /**
+   * `ifNotExists` guards against re-running a migration that already created
+   * this index (e.g. a `Schema.createIfNotExists` table whose CREATE TABLE was
+   * a no-op because the table already existed). PostgreSQL and SQLite both
+   * support `IF NOT EXISTS` on `CREATE INDEX`; MySqlSchemaGrammar overrides
+   * this method because MySQL has no equivalent syntax.
+   */
+  protected createIndexSql(
+    table: string,
+    columns: string[],
+    name?: string,
+    unique = false,
+    ifNotExists = false
+  ): string {
     const indexName = name ?? this.generateIndexName(table, columns, unique ? 'unique' : 'index')
+    const guard = ifNotExists ? 'IF NOT EXISTS ' : ''
 
-    return `CREATE ${unique ? 'UNIQUE ' : ''}INDEX ${this.wrap(indexName)} ON ${this.wrapTable(table)} (${this.columnize(
-      columns
-    )})`
+    return `CREATE ${unique ? 'UNIQUE ' : ''}INDEX ${guard}${this.wrap(indexName)} ON ${this.wrapTable(
+      table
+    )} (${this.columnize(columns)})`
   }
 
   protected foreignClause(table: string, command: ForeignCommand, forceName = false): string {
@@ -348,9 +373,9 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
       sql += `CONSTRAINT ${this.wrap(name)} `
     }
 
-    sql += `FOREIGN KEY (${this.columnize(command.columns)}) REFERENCES ${this.wrapTable(command.on ?? '')} (${this.columnize(
-      references
-    )})`
+    sql += `FOREIGN KEY (${this.columnize(command.columns)}) REFERENCES ${this.wrapTable(
+      command.on ?? ''
+    )} (${this.columnize(references)})`
 
     if (command.onDelete) {
       sql += ` ON DELETE ${command.onDelete.toUpperCase()}`

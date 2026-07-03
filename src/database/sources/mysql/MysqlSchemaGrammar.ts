@@ -5,8 +5,19 @@ import { ColumnDefinition, DefaultSchemaGrammar, SchemaCommand } from '../../sch
  * (backticks), UNSIGNED/AUTO_INCREMENT syntax, TINYINT(1) booleans, JSON in
  * place of native arrays, and the single-statement MODIFY COLUMN / DROP FOREIGN
  * KEY / DROP PRIMARY KEY forms.
+ *
+ * Unlike PostgreSQL and SQLite, MySQL's `CREATE INDEX` has no `IF NOT EXISTS`
+ * clause, so `createIndexSql` ignores that flag here: a `Schema.createIfNotExists`
+ * table re-run against MySQL is idempotent for the table itself, but re-running
+ * it after the index already exists still fails with a duplicate-key-name error.
+ * Track applied migrations (skip `up()` once it already ran) rather than relying
+ * on index-level idempotency on this engine.
  */
 export class MysqlSchemaGrammar extends DefaultSchemaGrammar {
+  protected createIndexSql(table: string, columns: string[], name?: string, unique = false): string {
+    return super.createIndexSql(table, columns, name, unique, false)
+  }
+
   protected wrap(name: string): string {
     return '`' + name.replace(/`/g, '``') + '`'
   }

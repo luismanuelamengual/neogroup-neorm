@@ -10,7 +10,11 @@ import {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function buildCreate(grammar: PostgresSchemaGrammar | MysqlSchemaGrammar | SqliteSchemaGrammar, table: string, cb: (t: Blueprint) => void): string[] {
+function buildCreate(
+  grammar: PostgresSchemaGrammar | MysqlSchemaGrammar | SqliteSchemaGrammar,
+  table: string,
+  cb: (t: Blueprint) => void
+): string[] {
   const blueprint = new Blueprint(table, 'create')
 
   cb(blueprint)
@@ -151,6 +155,57 @@ describe('Schema — compilación DDL agnóstica', () => {
     change.string('title', 50).change()
     expect(() => sqlite.compileAlter(change)).toThrow(/modify column/i)
   })
+
+  // Regression: a createIfNotExists() blueprint must be safe to compile more
+  // than once against a database where the table (and its index) already
+  // exist — that is the whole point of "if not exists". Before this fix, the
+  // CREATE TABLE got the IF NOT EXISTS guard but the trailing CREATE INDEX
+  // did not, so a second migration run blew up with "index already exists"
+  // even though nothing needed to change.
+  it('createIfNotExists agrega IF NOT EXISTS también a los índices en Postgres y SQLite', () => {
+    const withIndex = (t: Blueprint) => {
+      t.increments('id')
+      t.integer('userId').index()
+      t.index(['userId'], 'idx_tokens_user')
+    }
+
+    const buildIfNotExists = (grammar: PostgresSchemaGrammar | SqliteSchemaGrammar, table: string): string[] => {
+      const blueprint = new Blueprint(table, 'create', true)
+
+      withIndex(blueprint)
+
+      return grammar.compileCreate(blueprint)
+    }
+
+    for (const grammar of [postgres, sqlite]) {
+      const statements = buildIfNotExists(grammar, 'tokens')
+
+      expect(statements[0]).toContain('CREATE TABLE IF NOT EXISTS tokens')
+      expect(statements.slice(1).every((s) => /^CREATE (UNIQUE )?INDEX IF NOT EXISTS /.test(s))).toBe(true)
+    }
+
+    // A plain create() (no ifNotExists) keeps emitting bare CREATE INDEX, so
+    // existing migrations/tests relying on that exact SQL are unaffected.
+    const plain = new Blueprint('tokens', 'create')
+
+    withIndex(plain)
+    const plainStatements = postgres.compileCreate(plain)
+
+    expect(plainStatements.slice(1).every((s) => /^CREATE (UNIQUE )?INDEX (?!IF NOT EXISTS)/.test(s))).toBe(true)
+  })
+
+  it('MySQL ignora el flag ifNotExists en los índices (sin soporte nativo)', () => {
+    const blueprint = new Blueprint('tokens', 'create', true)
+
+    blueprint.increments('id')
+    blueprint.integer('userId').index()
+
+    const statements = mysql.compileCreate(blueprint)
+
+    expect(statements[0]).toContain('CREATE TABLE IF NOT EXISTS')
+    expect(statements[1]).not.toContain('IF NOT EXISTS')
+    expect(statements[1]).toMatch(/^CREATE INDEX `tokens_userid_index` ON `tokens`/)
+  })
 })
 
 // ─── Live execution on SQLite ─────────────────────────────────────────────────
@@ -196,5 +251,22 @@ describe('Schema — ejecución real en SQLite', () => {
 
     await Schema.dropIfExists('accounts')
     expect(await Schema.hasTable('accounts')).toBe(false)
+  })
+
+  it('createIfNotExists puede correrse dos veces sin romper por el índice (regresión)', async () => {
+    const migrate = () =>
+      Schema.createIfNotExists('password_reset_tokens', (t) => {
+        t.increments('id')
+        t.integer('userId')
+        t.index('userId', 'idx_password_reset_tokens_user')
+      })
+
+    await migrate()
+    // Second run simulates re-applying a migration against a DB that already
+    // has the table: this used to throw "index idx_password_reset_tokens_user
+    // already exists" even though the table itself was correctly skipped.
+    await expect(migrate()).resolves.not.toThrow()
+
+    await Schema.dropIfExists('password_reset_tokens')
   })
 })
