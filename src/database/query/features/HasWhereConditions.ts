@@ -1,4 +1,4 @@
-import { Condition, ConditionConnector, ConditionGroup } from '../conditions'
+import { buildExistsCondition, Condition, ConditionConnector, ConditionGroup, ExistsSubquery } from '../conditions'
 import { Field } from '../fields'
 
 export abstract class HasWhereConditions<R> {
@@ -64,6 +64,14 @@ export abstract class HasWhereConditions<R> {
     return this.where(field, caseSensitive ? 'NOT LIKE' : 'NOT ILIKE', pattern)
   }
 
+  public whereExists(subquery: ExistsSubquery): R {
+    return this.where(buildExistsCondition(subquery))
+  }
+
+  public whereNotExists(subquery: ExistsSubquery): R {
+    return this.where(buildExistsCondition(subquery, true))
+  }
+
   // ── OR WHERE ─────────────────────────────────────────────────────────────────
 
   public orWhere(callback: (group: ConditionGroup) => void): R
@@ -108,6 +116,14 @@ export abstract class HasWhereConditions<R> {
 
   public orWhereNotLike(field: Field, pattern: string, caseSensitive = false): R {
     return this.orWhere(field, caseSensitive ? 'NOT LIKE' : 'NOT ILIKE', pattern)
+  }
+
+  public orWhereExists(subquery: ExistsSubquery): R {
+    return this.orWhere(buildExistsCondition(subquery))
+  }
+
+  public orWhereNotExists(subquery: ExistsSubquery): R {
+    return this.orWhere(buildExistsCondition(subquery, true))
   }
 
   // ── WHERE COLUMN ──────────────────────────────────────────────────────────

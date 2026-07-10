@@ -2,6 +2,7 @@ import { Field } from '../fields'
 import { Condition } from './Condition'
 import { ConditionConnector } from './ConditionConnector'
 import { ConnectedCondition } from './ConnectedCondition'
+import { buildExistsCondition, ExistsSubquery } from './ExistsCondition'
 
 export class ConditionGroup {
   private conditions: Array<ConnectedCondition> = []
@@ -126,12 +127,14 @@ export class ConditionGroup {
     return this.where(field, '<>', null)
   }
 
-  public whereLike(field: Field, pattern: string): ConditionGroup {
-    return this.where(field, 'LIKE', pattern)
+  /** Case-insensitive by default. Pass caseSensitive=true for exact-case matching. */
+  public whereLike(field: Field, pattern: string, caseSensitive = false): ConditionGroup {
+    return this.where(field, caseSensitive ? 'LIKE' : 'ILIKE', pattern)
   }
 
-  public whereNotLike(field: Field, pattern: string): ConditionGroup {
-    return this.where(field, 'NOT LIKE', pattern)
+  /** Case-insensitive by default. Pass caseSensitive=true for exact-case matching. */
+  public whereNotLike(field: Field, pattern: string, caseSensitive = false): ConditionGroup {
+    return this.where(field, caseSensitive ? 'NOT LIKE' : 'NOT ILIKE', pattern)
   }
 
   public whereColumn(field: Field, column: Field): ConditionGroup
@@ -143,6 +146,14 @@ export class ConditionGroup {
     this.conditions.push({ condition: { field, operator, column: col }, connector: ConditionConnector.AND })
 
     return this
+  }
+
+  public whereExists(subquery: ExistsSubquery): ConditionGroup {
+    return this.where(buildExistsCondition(subquery))
+  }
+
+  public whereNotExists(subquery: ExistsSubquery): ConditionGroup {
+    return this.where(buildExistsCondition(subquery, true))
   }
 
   // ── OR WHERE convenience methods ──────────────────────────────────────────
@@ -171,12 +182,14 @@ export class ConditionGroup {
     return this.orWhere(field, '<>', null)
   }
 
-  public orWhereLike(field: Field, pattern: string): ConditionGroup {
-    return this.orWhere(field, 'LIKE', pattern)
+  /** Case-insensitive by default. Pass caseSensitive=true for exact-case matching. */
+  public orWhereLike(field: Field, pattern: string, caseSensitive = false): ConditionGroup {
+    return this.orWhere(field, caseSensitive ? 'LIKE' : 'ILIKE', pattern)
   }
 
-  public orWhereNotLike(field: Field, pattern: string): ConditionGroup {
-    return this.orWhere(field, 'NOT LIKE', pattern)
+  /** Case-insensitive by default. Pass caseSensitive=true for exact-case matching. */
+  public orWhereNotLike(field: Field, pattern: string, caseSensitive = false): ConditionGroup {
+    return this.orWhere(field, caseSensitive ? 'NOT LIKE' : 'NOT ILIKE', pattern)
   }
 
   public orWhereColumn(field: Field, column: Field): ConditionGroup
@@ -188,5 +201,13 @@ export class ConditionGroup {
     this.conditions.push({ condition: { field, operator, column: col }, connector: ConditionConnector.OR })
 
     return this
+  }
+
+  public orWhereExists(subquery: ExistsSubquery): ConditionGroup {
+    return this.orWhere(buildExistsCondition(subquery))
+  }
+
+  public orWhereNotExists(subquery: ExistsSubquery): ConditionGroup {
+    return this.orWhere(buildExistsCondition(subquery, true))
   }
 }

@@ -3,7 +3,7 @@ import { DataSource } from '../database/DataSource'
 import { DB } from '../database/DB'
 import { PaginationResult } from '../database/PaginationResult'
 import { Field, InsertQuery, UpsertQuery } from '../database/query'
-import { Condition, ConditionGroup } from '../database/query/conditions'
+import { Condition, ConditionGroup, ExistsSubquery } from '../database/query/conditions'
 import { OrderByDirection } from '../database/query/features/HasOrderByFields'
 import { CastType } from './CastType'
 import { applyCast, applyCastForStorage } from './decorators/casts'
@@ -593,6 +593,14 @@ export class EntityRepository<T> {
   whereColumn(field: Field, operator: string, column: Field): EntityQuery<T>
   whereColumn(...args: any[]): EntityQuery<T> {
     return (this.query() as any).whereColumn(...args)
+  }
+
+  whereExists(subquery: ExistsSubquery): EntityQuery<T> {
+    return this.query().whereExists(subquery)
+  }
+
+  whereNotExists(subquery: ExistsSubquery): EntityQuery<T> {
+    return this.query().whereNotExists(subquery)
   }
 
   orderBy(field: Field, direction?: OrderByDirection): EntityQuery<T> {

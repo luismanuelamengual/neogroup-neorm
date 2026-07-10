@@ -1,7 +1,7 @@
 import { DataTable } from '../database/DataTable'
 import { PaginationResult } from '../database/PaginationResult'
 import { Field } from '../database/query'
-import { Condition, ConditionGroup } from '../database/query/conditions'
+import { Condition, ConditionGroup, ExistsSubquery } from '../database/query/conditions'
 import { OrderByDirection } from '../database/query/features/HasOrderByFields'
 import { EntityQuery } from './EntityQuery'
 import { addGlobalScopeToStore, EntityRepository, Repository } from './EntityRepository'
@@ -185,6 +185,14 @@ export abstract class BaseEntity {
   ): EntityQuery<T>
   static whereColumn(this: any, ...args: any[]): EntityQuery<any> {
     return this._repo().whereColumn(...args)
+  }
+
+  static whereExists<T extends BaseEntity>(this: EntityClass<T>, subquery: ExistsSubquery): EntityQuery<T> {
+    return this._repo().whereExists(subquery)
+  }
+
+  static whereNotExists<T extends BaseEntity>(this: EntityClass<T>, subquery: ExistsSubquery): EntityQuery<T> {
+    return this._repo().whereNotExists(subquery)
   }
 
   static orderBy<T extends BaseEntity>(

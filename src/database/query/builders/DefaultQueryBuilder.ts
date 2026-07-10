@@ -38,6 +38,7 @@ export class DefaultQueryBuilder extends QueryBuilder {
   protected static readonly NOT = 'NOT'
   protected static readonly ON = 'ON'
   protected static readonly WHERE = 'WHERE'
+  protected static readonly EXISTS = 'EXISTS'
   protected static readonly HAVING = 'HAVING'
   protected static readonly GROUP = 'GROUP'
   protected static readonly ORDER = 'ORDER'
@@ -587,7 +588,12 @@ export class DefaultQueryBuilder extends QueryBuilder {
     } else if (condition instanceof ConditionGroup) {
       this.buildConditionGroup(condition, statement)
     } else if ('exists' in condition) {
-      statement.sql += 'EXISTS'
+      if (condition.not) {
+        statement.sql += DefaultQueryBuilder.NOT
+        statement.sql += DefaultQueryBuilder.SPACE
+      }
+
+      statement.sql += DefaultQueryBuilder.EXISTS
       statement.sql += DefaultQueryBuilder.SPACE
       statement.sql += DefaultQueryBuilder.PARENTHESIS_START
       this.buildSelectQuery(condition.exists, statement)

@@ -1,7 +1,7 @@
 import { DataTable } from '../database/DataTable'
 import { PaginationResult } from '../database/PaginationResult'
 import { Field, SelectQuery } from '../database/query'
-import { Condition, ConditionGroup, ExistsCondition } from '../database/query/conditions'
+import { Condition, ConditionGroup, ExistsSubquery } from '../database/query/conditions'
 import { JoinType } from '../database/query/features/HasJoins'
 import { OrderByDirection } from '../database/query/features/HasOrderByFields'
 import { EntityRepository, getGlobalScopes, Repository } from './EntityRepository'
@@ -204,22 +204,20 @@ export class EntityQuery<T> {
       subConditions.whereColumn(`${throughTable}.${rel.localKey}`, `${this._repository.table}.${rel.foreignKey}`)
     }
 
-    // Build EXISTS (SELECT 1 FROM related_table [...] WHERE [...]).
-    // Use a lazy ExistsCondition so the subquery is compiled in the context of the
-    // outer statement — this ensures Postgres $N positions are correct and avoids
-    // pre-baked placeholders clashing with outer bindings.
+    // Build EXISTS (SELECT 1 FROM related_table [...] WHERE [...]) via whereExists/orWhereExists.
+    // Passing the SelectQuery instance (rather than a callback) keeps the subquery
+    // compiled in the context of the outer statement — this ensures Postgres $N
+    // positions are correct and avoids pre-baked placeholders clashing with outer bindings.
     const subSelectQuery = new SelectQuery(relatedTable)
 
     subSelectQuery.setSelectFields(['1'])
     subSelectQuery.setWhereConditions(subConditions)
     subSelectQuery.setJoins(subTable.getJoins())
 
-    const existsCondition: ExistsCondition = { exists: subSelectQuery }
-
     if (connector === 'AND') {
-      this._table.where(existsCondition as any)
+      this._table.whereExists(subSelectQuery)
     } else {
-      this._table.orWhere(existsCondition as any)
+      this._table.orWhereExists(subSelectQuery)
     }
 
     return this
@@ -750,6 +748,18 @@ export class EntityQuery<T> {
     return this
   }
 
+  public whereExists(subquery: ExistsSubquery): this {
+    this._table.whereExists(subquery)
+
+    return this
+  }
+
+  public whereNotExists(subquery: ExistsSubquery): this {
+    this._table.whereNotExists(subquery)
+
+    return this
+  }
+
   public orWhere(...args: any[]): this {
     if (args.length >= 2) {
       args[0] = this._resolveField(args[0])
@@ -806,6 +816,18 @@ export class EntityQuery<T> {
 
   public orWhereNotLike(field: Field, pattern: string, caseSensitive = false): this {
     this._table.orWhereNotLike(this._resolveField(field), pattern, caseSensitive)
+
+    return this
+  }
+
+  public orWhereExists(subquery: ExistsSubquery): this {
+    this._table.orWhereExists(subquery)
+
+    return this
+  }
+
+  public orWhereNotExists(subquery: ExistsSubquery): this {
+    this._table.orWhereNotExists(subquery)
 
     return this
   }
