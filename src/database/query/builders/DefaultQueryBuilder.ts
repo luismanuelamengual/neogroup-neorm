@@ -755,6 +755,12 @@ export class DefaultQueryBuilder extends QueryBuilder {
       statement.sql += DefaultQueryBuilder.PARENTHESIS_START
       this.buildSelectQuery(value, statement)
       statement.sql += DefaultQueryBuilder.PARENTHESIS_END
+    } else if (value instanceof Date) {
+      // Mirrors buildValue's own Date check below: without it, a Date lands in the
+      // generic "object → field reference" branch (meant for things like
+      // whereColumn's { name, table } descriptors) and gets built as a bare,
+      // unbound column reference instead of a bound value.
+      this.buildSingleValue(value, statement)
     } else if (!Array.isArray(value) && value !== null && value !== undefined && typeof value === 'object') {
       this.buildField(value, statement)
     } else {

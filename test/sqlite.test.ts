@@ -1104,6 +1104,108 @@ describe('SQLite — CRUD completo', () => {
     })
   })
 
+  // ─── COERCIÓN DE BINDINGS (boolean / Date / undefined) ──────────────────
+  //
+  // node:sqlite (DatabaseSync) sólo acepta null, number, bigint, string y Buffer
+  // como parámetros bindeados: pasarle un boolean, un Date o undefined lanza
+  // `TypeError: Provided value cannot be bound to SQLite parameter N`. Postgres
+  // y MySQL bindean esos tipos nativamente, así que el resto del query builder
+  // / active record los pasa tal cual, sin cast — es responsabilidad exclusiva
+  // de SqliteConnection normalizarlos antes de llegar al driver.
+
+  describe('Coerción de bindings (boolean / Date / undefined)', () => {
+    beforeEach(async () => {
+      await source.execute(`
+        CREATE TABLE IF NOT EXISTS events (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT    NOT NULL,
+          featured    INTEGER NOT NULL DEFAULT 0,
+          happened_at TEXT,
+          notes       TEXT
+        )
+      `)
+      await source.execute('DELETE FROM events')
+    })
+
+    it('setFieldValue con un boolean real no lanza y se persiste como 0/1', async () => {
+      await source.table('events').setFieldValue('name', 'Launch').setFieldValue('featured', true).insert()
+      await source.table('events').setFieldValue('name', 'Retro').setFieldValue('featured', false).insert()
+
+      const featured = await source.table('events').where('featured', true).get()
+      const notFeatured = await source.table('events').where('featured', false).get()
+
+      expect(featured).toHaveLength(1)
+      expect(featured[0].name).toBe('Launch')
+      expect(featured[0].featured).toBe(1)
+      expect(notFeatured).toHaveLength(1)
+      expect(notFeatured[0].featured).toBe(0)
+    })
+
+    it('setFieldValue con un Date real no lanza y se persiste como ISO string', async () => {
+      const when = new Date('2026-01-15T10:30:00.000Z')
+
+      await source.table('events').setFieldValue('name', 'Kickoff').setFieldValue('happened_at', when).insert()
+
+      const event = await source.table('events').where('name', 'Kickoff').first()
+
+      expect(event!.happened_at).toBe(when.toISOString())
+    })
+
+    it('where(...) comparando contra un Date real no lanza', async () => {
+      const when = new Date('2026-02-01T00:00:00.000Z')
+
+      await source.table('events').setFieldValue('name', 'Anniversary').setFieldValue('happened_at', when).insert()
+
+      const events = await source.table('events').where('happened_at', when).get()
+
+      expect(events).toHaveLength(1)
+      expect(events[0].name).toBe('Anniversary')
+    })
+
+    it('setFieldValue con undefined no lanza y se persiste como NULL', async () => {
+      await source.table('events').setFieldValue('name', 'No notes').setFieldValue('notes', undefined).insert()
+
+      const event = await source.table('events').where('name', 'No notes').first()
+
+      expect(event!.notes).toBeNull()
+    })
+
+    it('update(...) con boolean y Date reales no lanza', async () => {
+      await source.table('events').setFieldValue('name', 'Draft').setFieldValue('featured', false).insert()
+
+      const when = new Date('2026-03-01T00:00:00.000Z')
+      const changes = await source
+        .table('events')
+        .where('name', 'Draft')
+        .setFieldValue('featured', true)
+        .setFieldValue('happened_at', when)
+        .update()
+
+      expect(changes).toBe(1)
+
+      const event = await source.table('events').where('name', 'Draft').first()
+
+      expect(event!.featured).toBe(1)
+      expect(event!.happened_at).toBe(when.toISOString())
+    })
+
+    it('execute(...) crudo con boolean/Date/undefined en las bindings no lanza', async () => {
+      const changes = await source.execute(
+        'INSERT INTO events (name, featured, happened_at, notes) VALUES (?, ?, ?, ?)',
+        ['Raw', true, new Date('2026-04-01T00:00:00.000Z'), undefined]
+      )
+
+      expect(changes).toBe(1)
+
+      const rows = await source.query('SELECT * FROM events WHERE name = ?', ['Raw'])
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0].featured).toBe(1)
+      expect(rows[0].happened_at).toBe('2026-04-01T00:00:00.000Z')
+      expect(rows[0].notes).toBeNull()
+    })
+  })
+
   // ─── TRANSACTIONS ────────────────────────────────────────────────────────
 
   describe('TRANSACTIONS', () => {
