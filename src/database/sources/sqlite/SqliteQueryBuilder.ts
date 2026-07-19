@@ -1,3 +1,4 @@
+import { ArrayContainsCondition } from '../../query/conditions'
 import { DefaultQueryBuilder } from '../../query/builders/DefaultQueryBuilder'
 import { SelectQuery } from '../../query/SelectQuery'
 import { Statement } from '../../query/Statement'
@@ -18,6 +19,26 @@ export class SqliteQueryBuilder extends DefaultQueryBuilder {
     } else {
       super.buildColumnValue(value, statement)
     }
+  }
+
+  /**
+   * SQLite stores integer arrays as JSON text, so array membership is expressed
+   * by expanding the JSON with json_each() and matching a row. No native array
+   * operator (and therefore no GIN index) exists here — this is the test-engine
+   * fallback for the PostgreSQL `@>` form.
+   */
+  protected buildArrayContainsCondition(condition: ArrayContainsCondition, statement: Statement) {
+    const { arrayField, containsValue, not } = condition
+
+    if (not) {
+      statement.sql += 'NOT '
+    }
+
+    statement.sql += 'EXISTS (SELECT 1 FROM json_each('
+    this.buildField(arrayField, statement)
+    statement.sql += ') WHERE value = '
+    this.buildValue(containsValue, statement)
+    statement.sql += ')'
   }
 
   protected buildLimitOffset(query: SelectQuery, statement: Statement) {

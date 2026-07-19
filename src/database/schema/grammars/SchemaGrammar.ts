@@ -27,4 +27,20 @@ export abstract class SchemaGrammar {
 
   /** A parameterised query returning whether the given table exists. */
   public abstract compileTableExists(table: string): { sql: string; bindings: any[] }
+
+  /** A parameterised query returning whether `column` exists on `table`. */
+  public abstract compileColumnExists(table: string, column: string): { sql: string; bindings: any[] }
+
+  /**
+   * How this engine removes columns from an existing table:
+   *   - 'alter'   → a plain `ALTER TABLE ... DROP COLUMN` (compiled by
+   *                 compileAlter). Used by PostgreSQL and MySQL.
+   *   - 'rebuild' → the engine cannot drop a column that participates in an
+   *                 index or foreign key via ALTER, so the SchemaBuilder must
+   *                 rebuild the table (create new, copy, drop, rename). Used by
+   *                 SQLite.
+   */
+  public dropColumnStrategy(): 'alter' | 'rebuild' {
+    return 'alter'
+  }
 }

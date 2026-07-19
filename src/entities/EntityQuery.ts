@@ -174,6 +174,12 @@ export class EntityQuery<T> {
       subConditions.whereColumn(`${relatedTable}.${rel.foreignKey}`, `${this._repository.table}.${rel.localKey}`)
     } else if (rel.type === 'belongsTo') {
       subConditions.whereColumn(`${relatedTable}.${rel.localKey}`, `${this._repository.table}.${rel.foreignKey}`)
+    } else if (rel.type === 'hasManyInArray') {
+      // Correlated array membership: parent.arrayColumn @> ARRAY[related.localKey]
+      subConditions.whereArrayContains(`${this._repository.table}.${rel.foreignKey}`, {
+        name: rel.localKey,
+        table: relatedTable
+      })
     } else if (rel.type === 'hasOneThrough' || rel.type === 'hasManyThrough') {
       const ThroughClass = rel.through!()
       const throughRepo = Repository.get(ThroughClass)
@@ -443,6 +449,42 @@ export class EntityQuery<T> {
 
         entities.forEach((r) => {
           r[head] = lookup.get(r[rel.foreignKey]) ?? null
+        })
+      } else if (rel.type === 'hasManyInArray') {
+        // The array of related keys lives on THIS (parent) side; gather their union.
+        const keys = [
+          ...new Set(
+            entities
+              .flatMap((r) => (Array.isArray(r[rel.foreignKey]) ? r[rel.foreignKey] : []))
+              .filter((v: any) => v != null)
+          )
+        ]
+
+        if (keys.length === 0) {
+          entities.forEach((r) => {
+            r[head] = []
+          })
+
+          continue
+        }
+
+        const q = relatedRepo.whereIn(rel.localKey, keys)
+
+        if (callback) {
+          callback(q)
+        }
+
+        relatedItems = await q.get()
+
+        const lookup = new Map<any, any>()
+
+        relatedItems.forEach((item: any) => lookup.set(item[rel.localKey], item))
+
+        entities.forEach((r) => {
+          const ids: any[] = Array.isArray(r[rel.foreignKey]) ? r[rel.foreignKey] : []
+
+          // Preserve the array order; drop keys that did not resolve to a row.
+          r[head] = ids.map((id: any) => lookup.get(id)).filter((v: any) => v != null)
         })
       } else if (rel.type === 'hasOneThrough' || rel.type === 'hasManyThrough') {
         const ThroughClass = rel.through!()
@@ -760,6 +802,12 @@ export class EntityQuery<T> {
     return this
   }
 
+  public whereArrayContains(field: Field, value: any): this {
+    this._table.whereArrayContains(this._resolveField(field), value)
+
+    return this
+  }
+
   public orWhere(...args: any[]): this {
     if (args.length >= 2) {
       args[0] = this._resolveField(args[0])
@@ -828,6 +876,12 @@ export class EntityQuery<T> {
 
   public orWhereNotExists(subquery: ExistsSubquery): this {
     this._table.orWhereNotExists(subquery)
+
+    return this
+  }
+
+  public orWhereArrayContains(field: Field, value: any): this {
+    this._table.orWhereArrayContains(this._resolveField(field), value)
 
     return this
   }

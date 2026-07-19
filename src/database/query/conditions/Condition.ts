@@ -1,3 +1,4 @@
+import { ArrayContainsCondition } from './ArrayContainsCondition'
 import { BasicCondition } from './BasicCondition'
 import { ColumnCondition } from './ColumnCondition'
 import { ConditionGroup } from './ConditionGroup'
@@ -8,6 +9,7 @@ export type Condition =
   | RawCondition
   | BasicCondition
   | ColumnCondition
+  | ArrayContainsCondition
   | ConditionGroup
   | ExistsCondition
   | ((group: ConditionGroup) => void)

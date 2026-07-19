@@ -599,6 +599,10 @@ export class EntityRepository<T> {
     return this.query().whereExists(subquery)
   }
 
+  whereArrayContains(field: Field, value: any): EntityQuery<T> {
+    return this.query().whereArrayContains(field, value)
+  }
+
   whereNotExists(subquery: ExistsSubquery): EntityQuery<T> {
     return this.query().whereNotExists(subquery)
   }

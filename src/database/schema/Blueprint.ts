@@ -57,6 +57,32 @@ export class Blueprint {
     return this._commands
   }
 
+  /**
+   * Removes and returns the `dropColumn` commands from this blueprint. Used by
+   * the SchemaBuilder on engines whose `dropColumnStrategy()` is 'rebuild'
+   * (SQLite): the remaining commands are compiled normally and the dropped
+   * column names drive a table rebuild instead of an ALTER … DROP COLUMN.
+   */
+  public removeDropColumnCommands(): string[] {
+    const dropped: string[] = []
+
+    for (let index = this._commands.length - 1; index >= 0; index--) {
+      const command = this._commands[index]
+
+      if (command.name === 'dropColumn') {
+        dropped.unshift(...command.columns)
+        this._commands.splice(index, 1)
+      }
+    }
+
+    return dropped
+  }
+
+  /** Whether the blueprint carries any column definitions or structural commands. */
+  public isEmpty(): boolean {
+    return this._columns.length === 0 && this._commands.length === 0
+  }
+
   public wantsIfNotExists(): boolean {
     return this._ifNotExists
   }

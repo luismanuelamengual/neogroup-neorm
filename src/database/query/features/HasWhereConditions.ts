@@ -72,6 +72,13 @@ export abstract class HasWhereConditions<R> {
     return this.where(buildExistsCondition(subquery, true))
   }
 
+  /** Membership test of `value` inside the array column `field`. */
+  public whereArrayContains(field: Field, value: any): R {
+    this.getWhereConditions().whereArrayContains(field, value)
+
+    return this as unknown as R
+  }
+
   // ── OR WHERE ─────────────────────────────────────────────────────────────────
 
   public orWhere(callback: (group: ConditionGroup) => void): R
@@ -124,6 +131,13 @@ export abstract class HasWhereConditions<R> {
 
   public orWhereNotExists(subquery: ExistsSubquery): R {
     return this.orWhere(buildExistsCondition(subquery, true))
+  }
+
+  /** Membership test of `value` inside the array column `field` (OR-connected). */
+  public orWhereArrayContains(field: Field, value: any): R {
+    this.getWhereConditions().orWhereArrayContains(field, value)
+
+    return this as unknown as R
   }
 
   // ── WHERE COLUMN ──────────────────────────────────────────────────────────

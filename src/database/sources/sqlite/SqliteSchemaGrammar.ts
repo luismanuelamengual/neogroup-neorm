@@ -76,4 +76,19 @@ export class SqliteSchemaGrammar extends DefaultSchemaGrammar {
       bindings: [table]
     }
   }
+
+  public compileColumnExists(table: string, column: string): { sql: string; bindings: any[] } {
+    return {
+      sql: 'SELECT name FROM pragma_table_info(?) WHERE name = ?',
+      bindings: [table, column]
+    }
+  }
+
+  /**
+   * SQLite cannot `ALTER TABLE ... DROP COLUMN` when the column is indexed or
+   * takes part in a foreign key, so the SchemaBuilder rebuilds the table instead.
+   */
+  public dropColumnStrategy(): 'alter' | 'rebuild' {
+    return 'rebuild'
+  }
 }

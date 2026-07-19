@@ -1,3 +1,4 @@
+export * from './ArrayContainsCondition'
 export * from './BasicCondition'
 export * from './ColumnCondition'
 export * from './Condition'

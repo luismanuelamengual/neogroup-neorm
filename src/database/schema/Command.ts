@@ -32,6 +32,8 @@ export interface IndexCommand {
   name: 'index'
   columns: string[]
   index?: string
+  /** Index method/access-type (e.g. 'gin', 'gist'). PostgreSQL-only; ignored elsewhere. */
+  using?: string
 }
 
 export interface ForeignCommand {

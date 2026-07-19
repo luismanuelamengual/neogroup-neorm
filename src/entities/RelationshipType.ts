@@ -1,1 +1,8 @@
-export type RelationshipType = 'hasOne' | 'hasMany' | 'belongsTo' | 'hasOneThrough' | 'hasManyThrough' | 'belongsToThrough'
+export type RelationshipType =
+  | 'hasOne'
+  | 'hasMany'
+  | 'belongsTo'
+  | 'hasManyInArray'
+  | 'hasOneThrough'
+  | 'hasManyThrough'
+  | 'belongsToThrough'

@@ -1,4 +1,4 @@
-import { DefaultQueryBuilder, QueryTable, Statement, UpsertQuery } from '../../query'
+import { ArrayContainsCondition, DefaultQueryBuilder, QueryTable, Statement, UpsertQuery } from '../../query'
 
 export class MysqlQueryBuilder extends DefaultQueryBuilder {
   private static readonly BACKTICK = '`'
@@ -32,6 +32,32 @@ export class MysqlQueryBuilder extends DefaultQueryBuilder {
     const upper = operator.toUpperCase()
 
     statement.sql += upper === 'ILIKE' ? 'LIKE' : upper === 'NOT ILIKE' ? 'NOT LIKE' : upper
+  }
+
+  // MySQL stores integer arrays as JSON, so membership is tested with
+  // JSON_CONTAINS (no GIN equivalent). The scalar is serialized to a JSON
+  // document; a { name, table } descriptor (correlated column) is cast to JSON.
+  protected buildArrayContainsCondition(condition: ArrayContainsCondition, statement: Statement) {
+    const { arrayField, containsValue, not } = condition
+
+    if (not) {
+      statement.sql += 'NOT '
+    }
+
+    statement.sql += 'JSON_CONTAINS('
+    this.buildField(arrayField, statement)
+    statement.sql += DefaultQueryBuilder.COMMA
+    statement.sql += DefaultQueryBuilder.SPACE
+
+    if (containsValue !== null && typeof containsValue === 'object') {
+      statement.sql += 'CAST('
+      this.buildField(containsValue, statement)
+      statement.sql += ' AS JSON)'
+    } else {
+      this.buildSingleValue(JSON.stringify(containsValue), statement)
+    }
+
+    statement.sql += DefaultQueryBuilder.PARENTHESIS_END
   }
 
   // MySQL has no ON CONFLICT; it resolves conflicts against any unique/primary

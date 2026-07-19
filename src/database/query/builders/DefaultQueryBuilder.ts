@@ -1,5 +1,5 @@
 import { DataSet } from '../../DataSet'
-import { ColumnCondition, Condition, ConditionConnector, ConditionGroup } from '../conditions'
+import { ArrayContainsCondition, ColumnCondition, Condition, ConditionConnector, ConditionGroup } from '../conditions'
 import { DeleteQuery } from '../DeleteQuery'
 import { Join, JoinType, OrderByField, SelectField } from '../features'
 import { Field } from '../fields'
@@ -611,6 +611,8 @@ export class DefaultQueryBuilder extends QueryBuilder {
       this.buildOperator(operator, statement)
       statement.sql += DefaultQueryBuilder.SPACE
       this.buildField(column, statement)
+    } else if ('arrayField' in condition) {
+      this.buildArrayContainsCondition(condition as ArrayContainsCondition, statement)
     } else if ('field' in condition) {
       const { field, operator, value } = condition
 
@@ -643,6 +645,33 @@ export class DefaultQueryBuilder extends QueryBuilder {
           this.buildValue(value, statement)
         }
       }
+    }
+  }
+
+  /**
+   * Array-membership predicate. The default (PostgreSQL) form uses the `@>`
+   * containment operator against an `ARRAY[...]` literal, which is able to use a
+   * GIN index on the column. SQLite/MySQL override this with their own JSON idiom.
+   */
+  protected buildArrayContainsCondition(condition: ArrayContainsCondition, statement: Statement) {
+    const { arrayField, containsValue, not } = condition
+
+    if (not) {
+      statement.sql += DefaultQueryBuilder.NOT
+      statement.sql += DefaultQueryBuilder.SPACE
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_START
+    }
+
+    this.buildField(arrayField, statement)
+    statement.sql += DefaultQueryBuilder.SPACE
+    statement.sql += '@>'
+    statement.sql += DefaultQueryBuilder.SPACE
+    statement.sql += 'ARRAY['
+    this.buildValue(containsValue, statement)
+    statement.sql += ']'
+
+    if (not) {
+      statement.sql += DefaultQueryBuilder.PARENTHESIS_END
     }
   }
 

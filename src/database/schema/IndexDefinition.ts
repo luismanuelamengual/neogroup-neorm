@@ -16,4 +16,17 @@ export class IndexDefinition {
 
     return this
   }
+
+  /**
+   * Sets the index method/access-type (e.g. `.using('gin')` for an INT[] GIN
+   * index). PostgreSQL emits `USING <method>`; SQLite and MySQL ignore it.
+   * Only meaningful on `table.index(...)` commands.
+   */
+  public using(method: string): this {
+    if (this.command.name === 'index') {
+      this.command.using = method
+    }
+
+    return this
+  }
 }

@@ -156,6 +156,13 @@ export class ConditionGroup {
     return this.where(buildExistsCondition(subquery, true))
   }
 
+  /** Membership test of `value` inside the array column `field`. */
+  public whereArrayContains(field: Field, value: any): ConditionGroup {
+    this.conditions.push({ condition: { arrayField: field, containsValue: value }, connector: ConditionConnector.AND })
+
+    return this
+  }
+
   // ── OR WHERE convenience methods ──────────────────────────────────────────
 
   public orWhereIn(field: Field, values: Array<any>): ConditionGroup {
@@ -209,5 +216,12 @@ export class ConditionGroup {
 
   public orWhereNotExists(subquery: ExistsSubquery): ConditionGroup {
     return this.orWhere(buildExistsCondition(subquery, true))
+  }
+
+  /** Membership test of `value` inside the array column `field` (OR-connected). */
+  public orWhereArrayContains(field: Field, value: any): ConditionGroup {
+    this.conditions.push({ condition: { arrayField: field, containsValue: value }, connector: ConditionConnector.OR })
+
+    return this
   }
 }

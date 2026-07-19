@@ -191,6 +191,10 @@ export abstract class BaseEntity {
     return this._repo().whereExists(subquery)
   }
 
+  static whereArrayContains<T extends BaseEntity>(this: EntityClass<T>, field: Field, value: any): EntityQuery<T> {
+    return this._repo().whereArrayContains(field, value)
+  }
+
   static whereNotExists<T extends BaseEntity>(this: EntityClass<T>, subquery: ExistsSubquery): EntityQuery<T> {
     return this._repo().whereNotExists(subquery)
   }

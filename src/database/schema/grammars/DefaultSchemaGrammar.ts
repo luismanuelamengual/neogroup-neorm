@@ -29,7 +29,9 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
     const indexesIfNotExists = blueprint.wantsIfNotExists()
 
     for (const index of this.collectIndexes(blueprint)) {
-      statements.push(this.createIndexSql(blueprint.getTable(), index.columns, index.name, false, indexesIfNotExists))
+      statements.push(
+        this.createIndexSql(blueprint.getTable(), index.columns, index.name, false, indexesIfNotExists, index.using)
+      )
     }
 
     return statements
@@ -78,6 +80,13 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
     return { sql: 'SELECT * FROM information_schema.tables WHERE table_name = ?', bindings: [table] }
   }
 
+  public compileColumnExists(table: string, column: string): { sql: string; bindings: any[] } {
+    return {
+      sql: 'SELECT * FROM information_schema.columns WHERE table_name = ? AND column_name = ?',
+      bindings: [table, column]
+    }
+  }
+
   // ── Alter-command dispatch ──────────────────────────────────────────────────
 
   protected compileCommand(table: string, command: SchemaCommand): string[] {
@@ -85,7 +94,7 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
       case 'foreign':
         return [`ALTER TABLE ${this.wrapTable(table)} ADD ${this.foreignClause(table, command, true)}`]
       case 'index':
-        return [this.createIndexSql(table, command.columns, command.index)]
+        return [this.createIndexSql(table, command.columns, command.index, false, false, command.using)]
       case 'unique':
         return [this.createIndexSql(table, command.columns, command.index, true)]
       case 'primary':
@@ -323,8 +332,8 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
     return groups
   }
 
-  protected collectIndexes(blueprint: Blueprint): Array<{ columns: string[]; name?: string }> {
-    const indexes: Array<{ columns: string[]; name?: string }> = []
+  protected collectIndexes(blueprint: Blueprint): Array<{ columns: string[]; name?: string; using?: string }> {
+    const indexes: Array<{ columns: string[]; name?: string; using?: string }> = []
 
     for (const column of blueprint.getColumns()) {
       if (column.isIndex) {
@@ -334,7 +343,7 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
 
     for (const command of blueprint.getCommands()) {
       if (command.name === 'index') {
-        indexes.push({ columns: command.columns, name: command.index })
+        indexes.push({ columns: command.columns, name: command.index, using: command.using })
       }
     }
 
@@ -353,8 +362,12 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
     columns: string[],
     name?: string,
     unique = false,
-    ifNotExists = false
+    ifNotExists = false,
+    _using?: string
   ): string {
+    // The base grammar ignores `_using`: index methods (GIN/GIST/…) are a
+    // PostgreSQL feature, emitted by PostgresSchemaGrammar's override. SQLite and
+    // MySQL inherit this method and therefore silently drop the method.
     const indexName = name ?? this.generateIndexName(table, columns, unique ? 'unique' : 'index')
     const guard = ifNotExists ? 'IF NOT EXISTS ' : ''
 

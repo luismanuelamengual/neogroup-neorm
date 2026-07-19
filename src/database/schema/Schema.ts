@@ -61,6 +61,10 @@ export abstract class Schema {
     return this.builder().hasTable(table)
   }
 
+  public static hasColumn(table: string, column: string): Promise<boolean> {
+    return this.builder().hasColumn(table, column)
+  }
+
   /** Wraps a raw SQL fragment for use as a column default. */
   public static raw(sql: string): SchemaExpression {
     return new SchemaExpression(sql)
