@@ -55,6 +55,9 @@ describe('Schema introspection & SQLite dropColumn rebuild', () => {
     source = new SqliteDataSource()
     DB.register(source)
 
+    await Schema.dropIfExists('items')
+    await Schema.dropIfExists('owners')
+
     await Schema.createIfNotExists('owners', (t) => {
       t.increments('id')
       t.string('name', 100)
@@ -82,6 +85,13 @@ describe('Schema introspection & SQLite dropColumn rebuild', () => {
   it('hasColumn reports existing and missing columns', async () => {
     expect(await Schema.hasColumn('items', 'legacy')).toBe(true)
     expect(await Schema.hasColumn('items', 'nope')).toBe(false)
+  })
+
+  it('hasColumn matches case-insensitively (PostgreSQL folds unquoted identifiers)', async () => {
+    // On PostgreSQL a column declared `userId` is stored as `userid`; the probe
+    // must still find it when asked with the original camelCase name.
+    expect(await Schema.hasColumn('items', 'LEGACY')).toBe(true)
+    expect(await Schema.hasColumn('ITEMS', 'legacy')).toBe(true)
   })
 
   it('drops an indexed foreign-key column by rebuilding the table', async () => {

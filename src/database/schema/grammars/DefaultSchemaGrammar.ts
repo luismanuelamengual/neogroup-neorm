@@ -82,7 +82,7 @@ export class DefaultSchemaGrammar extends SchemaGrammar {
 
   public compileColumnExists(table: string, column: string): { sql: string; bindings: any[] } {
     return {
-      sql: 'SELECT * FROM information_schema.columns WHERE table_name = ? AND column_name = ?',
+      sql: 'SELECT * FROM information_schema.columns WHERE lower(table_name) = lower(?) AND lower(column_name) = lower(?)',
       bindings: [table, column]
     }
   }

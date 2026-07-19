@@ -9,16 +9,20 @@ import { DefaultSchemaGrammar } from '../../schema'
 export class PostgresSchemaGrammar extends DefaultSchemaGrammar {
   public compileTableExists(table: string): { sql: string; bindings: any[] } {
     return {
-      sql: 'SELECT * FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1',
+      sql: 'SELECT * FROM information_schema.tables WHERE table_schema = current_schema() AND lower(table_name) = lower($1)',
       bindings: [table]
     }
   }
 
   public compileColumnExists(table: string, column: string): { sql: string; bindings: any[] } {
+    // Identifiers are emitted unquoted, so PostgreSQL folds them to lower case on
+    // creation (e.g. `userId` is stored as `userid`). information_schema keeps the
+    // real (folded) name, so the probe must compare case-insensitively — otherwise
+    // hasColumn('t', 'userId') never matches the stored 'userid'.
     return {
       sql:
         'SELECT * FROM information_schema.columns WHERE table_schema = current_schema() ' +
-        'AND table_name = $1 AND column_name = $2',
+        'AND lower(table_name) = lower($1) AND lower(column_name) = lower($2)',
       bindings: [table, column]
     }
   }

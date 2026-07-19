@@ -79,7 +79,7 @@ export class SqliteSchemaGrammar extends DefaultSchemaGrammar {
 
   public compileColumnExists(table: string, column: string): { sql: string; bindings: any[] } {
     return {
-      sql: 'SELECT name FROM pragma_table_info(?) WHERE name = ?',
+      sql: 'SELECT name FROM pragma_table_info(?) WHERE lower(name) = lower(?)',
       bindings: [table, column]
     }
   }
