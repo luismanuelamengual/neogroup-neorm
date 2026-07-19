@@ -32,10 +32,12 @@ function buildSql(Builder: new () => any, configure: (q: SelectQuery) => void): 
 
 describe('whereArrayContains', () => {
   describe('SQL generation', () => {
-    it('PostgreSQL uses the @> containment operator against an ARRAY literal', () => {
+    it('PostgreSQL uses the @> containment operator against a cast ARRAY literal', () => {
       const { sql, bindings } = buildSql(PostgresQueryBuilder, (q) => q.whereArrayContains('playerIds', 42))
 
-      expect(sql).toBe('SELECT * FROM competitors WHERE playerIds @> ARRAY[$1]')
+      // The ARRAY literal is cast to int[] so a text-bound parameter still matches
+      // an integer[] column (otherwise: "operator does not exist: integer[] @> text[]").
+      expect(sql).toBe('SELECT * FROM competitors WHERE playerIds @> ARRAY[$1]::int[]')
       expect(bindings).toEqual([42])
     })
 
@@ -51,14 +53,16 @@ describe('whereArrayContains', () => {
         q.whereArrayContains('playerIds', 1).orWhereArrayContains('playerIds', 2)
       )
 
-      expect(sql).toBe('SELECT * FROM competitors WHERE playerIds @> ARRAY[$1] OR playerIds @> ARRAY[$2]')
+      expect(sql).toBe(
+        'SELECT * FROM competitors WHERE playerIds @> ARRAY[$1]::int[] OR playerIds @> ARRAY[$2]::int[]'
+      )
       expect(bindings).toEqual([1, 2])
     })
 
     it('qualifies the array column when a table prefix is given', () => {
       const { sql } = buildSql(PostgresQueryBuilder, (q) => q.whereArrayContains('competitors.playerIds', 7))
 
-      expect(sql).toBe('SELECT * FROM competitors WHERE competitors.playerIds @> ARRAY[$1]')
+      expect(sql).toBe('SELECT * FROM competitors WHERE competitors.playerIds @> ARRAY[$1]::int[]')
     })
   })
 

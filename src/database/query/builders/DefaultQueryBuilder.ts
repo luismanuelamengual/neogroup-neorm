@@ -652,6 +652,11 @@ export class DefaultQueryBuilder extends QueryBuilder {
    * Array-membership predicate. The default (PostgreSQL) form uses the `@>`
    * containment operator against an `ARRAY[...]` literal, which is able to use a
    * GIN index on the column. SQLite/MySQL override this with their own JSON idiom.
+   *
+   * The `ARRAY[...]` literal is cast to `int[]` because the driver binds the
+   * value as an untyped parameter (which PostgreSQL treats as `text`); without
+   * the cast `integer[] @> text[]` fails with "operator does not exist". neorm's
+   * only array column type is `integerArray`, so `int[]` is always the right type.
    */
   protected buildArrayContainsCondition(condition: ArrayContainsCondition, statement: Statement) {
     const { arrayField, containsValue, not } = condition
@@ -668,7 +673,7 @@ export class DefaultQueryBuilder extends QueryBuilder {
     statement.sql += DefaultQueryBuilder.SPACE
     statement.sql += 'ARRAY['
     this.buildValue(containsValue, statement)
-    statement.sql += ']'
+    statement.sql += ']::int[]'
 
     if (not) {
       statement.sql += DefaultQueryBuilder.PARENTHESIS_END
