@@ -1,5 +1,6 @@
 import { DataSet } from '../database/DataSet'
 import { DataSource } from '../database/DataSource'
+import { DataTable } from '../database/DataTable'
 import { DB } from '../database/DB'
 import { PaginationResult } from '../database/PaginationResult'
 import { Field, InsertQuery, UpsertQuery } from '../database/query'
@@ -543,6 +544,26 @@ export class EntityRepository<T> {
     return this.query().count(column)
   }
 
+  async sum(column: Field): Promise<number> {
+    return this.query().sum(column)
+  }
+
+  async avg(column: Field): Promise<number | null> {
+    return this.query().avg(column)
+  }
+
+  async min<V = any>(column: Field): Promise<V | null> {
+    return this.query().min<V>(column)
+  }
+
+  async max<V = any>(column: Field): Promise<V | null> {
+    return this.query().max<V>(column)
+  }
+
+  async toBase(): Promise<DataTable> {
+    return this.query().toBase()
+  }
+
   async paginate(perPage = 15, page = 1): Promise<PaginationResult<T>> {
     return this.query().paginate(perPage, page)
   }
@@ -617,6 +638,24 @@ export class EntityRepository<T> {
 
   groupBy(...fields: Field[]): EntityQuery<T> {
     return this.query().groupBy(...fields)
+  }
+
+  having(condition: Condition): EntityQuery<T>
+  having(field: Field, value: any): EntityQuery<T>
+  having(field: Field, operator: string, value: any): EntityQuery<T>
+  having(...args: any[]): EntityQuery<T> {
+    return (this.query() as any).having(...args)
+  }
+
+  orHaving(condition: Condition): EntityQuery<T>
+  orHaving(field: Field, value: any): EntityQuery<T>
+  orHaving(field: Field, operator: string, value: any): EntityQuery<T>
+  orHaving(...args: any[]): EntityQuery<T> {
+    return (this.query() as any).orHaving(...args)
+  }
+
+  distinct(): EntityQuery<T> {
+    return this.query().distinct()
   }
 
   limit(value: number): EntityQuery<T> {

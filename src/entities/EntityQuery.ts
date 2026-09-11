@@ -393,6 +393,72 @@ export class EntityQuery<T> {
     return this._table.count(resolved)
   }
 
+  /**
+   * SUM of a column, with this entity's global scopes applied — so it answers
+   * "the total of the rows you are allowed to see", not "the total in the
+   * table". Sums to 0 over an empty result set.
+   *
+   *   await Order.where('paid', true).sum('amount')
+   */
+  public async sum(column: Field): Promise<number> {
+    await this._applyGlobalScopes()
+
+    return this._table.sum(this._resolveField(column))
+  }
+
+  /** AVG of a column with the global scopes applied, or null when nothing matched. */
+  public async avg(column: Field): Promise<number | null> {
+    await this._applyGlobalScopes()
+
+    return this._table.avg(this._resolveField(column))
+  }
+
+  /**
+   * MIN of a column with the global scopes applied, or null when nothing
+   * matched. Returned as the driver produced it, uncast — see `DataTable.min`.
+   */
+  public async min<V = any>(column: Field): Promise<V | null> {
+    await this._applyGlobalScopes()
+
+    return this._table.min<V>(this._resolveField(column))
+  }
+
+  /** MAX of a column with the global scopes applied, or null when nothing matched. */
+  public async max<V = any>(column: Field): Promise<V | null> {
+    await this._applyGlobalScopes()
+
+    return this._table.max<V>(this._resolveField(column))
+  }
+
+  /**
+   * Drops down to the underlying DataTable with this entity's global scopes
+   * already folded in, so the rows come back raw instead of hydrated into
+   * entities. The escape hatch for queries whose result is not a row of the
+   * table — grouped aggregates above all.
+   *
+   *   const totals = await (await Ranking.where('userId', id).toBase())
+   *     .select('categoryId', 'SUM(points) AS points')
+   *     .groupBy('categoryId')
+   *     .get()
+   *
+   * Needed because `get()` hydrates every row through the entity's declared
+   * columns, which is the right thing for a row of the table and drops anything
+   * a projection added: `Ranking.select('SUM(points) AS total').get()` hands
+   * back a Ranking with no `total` on it (and no points either). Reach for this
+   * instead, and the scopes still apply — the whole point of going through the
+   * entity rather than `DB.table(...)`.
+   *
+   * It is `async` because a global scope may be asynchronous (it might read the
+   * current session, for instance), so the scopes can only be applied by
+   * awaiting. The DataTable returned is the query's own, already scoped: keep
+   * chaining on it, and do not reuse the EntityQuery afterwards.
+   */
+  public async toBase(): Promise<DataTable> {
+    await this._applyGlobalScopes()
+
+    return this._table
+  }
+
   public async paginate(perPage = 15, page = 1): Promise<PaginationResult<T>> {
     await this._applyGlobalScopes()
     const currentPage = Math.max(page, 1)
@@ -652,13 +718,14 @@ export class EntityQuery<T> {
         const cachedThroughItems = entities.flatMap((r) => {
           for (const key of Object.keys(r)) {
             const val = r[key]
+
             if (val != null && !Array.isArray(val) && val instanceof ThroughClass) {
               return [val]
             }
           }
+
           return []
         })
-
         const throughItems =
           cachedThroughItems.length > 0
             ? cachedThroughItems
@@ -946,6 +1013,44 @@ export class EntityQuery<T> {
 
   public orWhereArrayContains(field: Field, value: any): this {
     this._table.orWhereArrayContains(this._resolveField(field), value)
+
+    return this
+  }
+
+  /**
+   * HAVING condition on a grouped query. Same three shapes as `where`, and the
+   * field goes through the same property → column resolution, so both a
+   * declared property and a raw aggregate expression work:
+   *
+   *   Ranking.groupBy('userId').having('SUM(points)', '>', 100)
+   */
+  public having(condition: Condition): this
+  public having(field: Field, value: any): this
+  public having(field: Field, operator: string, value: any): this
+  public having(...args: any[]): this {
+    if (args.length === 1) {
+      ;(this._table as any).having(this._resolveCondition(args[0]))
+    } else if (args.length === 2) {
+      ;(this._table as any).having(this._resolveField(args[0]), args[1])
+    } else {
+      ;(this._table as any).having(this._resolveField(args[0]), args[1], args[2])
+    }
+
+    return this
+  }
+
+  /** OR-connected HAVING condition. See `having`. */
+  public orHaving(condition: Condition): this
+  public orHaving(field: Field, value: any): this
+  public orHaving(field: Field, operator: string, value: any): this
+  public orHaving(...args: any[]): this {
+    if (args.length === 1) {
+      ;(this._table as any).orHaving(this._resolveCondition(args[0]))
+    } else if (args.length === 2) {
+      ;(this._table as any).orHaving(this._resolveField(args[0]), args[1])
+    } else {
+      ;(this._table as any).orHaving(this._resolveField(args[0]), args[1], args[2])
+    }
 
     return this
   }

@@ -26,6 +26,7 @@ A lightweight, fluent TypeScript library for interacting with relational databas
   - [Sorting — ORDER BY](#sorting--order-by)
   - [Pagination — LIMIT & OFFSET](#pagination--limit--offset)
   - [Counting — count()](#counting--count)
+  - [Aggregates — sum() / avg() / min() / max()](#aggregates--sum--avg--min--max)
   - [Paginating — paginate()](#paginating--paginate)
   - [Grouping — GROUP BY & HAVING](#grouping--group-by--having)
   - [Joins](#joins)
@@ -57,6 +58,7 @@ A lightweight, fluent TypeScript library for interacting with relational databas
   - [Eager loading — with()](#eager-loading--with)
   - [Joining via relationships](#joining-via-relationships)
   - [Existence checks — whereHas / orWhereHas](#existence-checks--wherehas--orwherehas)
+  - [Scoped aggregates & raw projections — toBase()](#scoped-aggregates--raw-projections--tobase)
   - [Entities without BaseEntity](#entities-without-baseentity)
 - [Debug mode](#debug-mode)
 - [Extending the library](#extending-the-library)
@@ -477,6 +479,42 @@ const countries = await DB.table('users').distinct().count('country')
 ```
 
 When the query has a `groupBy`, `count()` returns the number of groups.
+
+---
+
+### Aggregates — sum() / avg() / min() / max()
+
+The same shape as `count()`: a scalar straight out of the query, honouring `where`, joins and having, ignoring `limit` / `offset` / `orderBy`.
+
+```typescript
+// SELECT SUM(amount) AS aggregate FROM orders WHERE paid = 1
+const revenue = await DB.table('orders').where('paid', 1).sum('amount')   // number
+
+// SELECT AVG(amount) AS aggregate FROM orders
+const ticket = await DB.table('orders').avg('amount')                     // number | null
+
+// SELECT MIN(created_at) AS aggregate FROM orders
+const first = await DB.table('orders').min('created_at')
+const last = await DB.table('orders').max('created_at')
+```
+
+Empty result sets differ on purpose: `sum()` returns `0`, while `avg()`, `min()` and `max()` return `null` — the average of no rows is undefined, not zero.
+
+`min()` and `max()` hand the value back exactly as the driver produced it, with no cast applied, because they are as useful over dates and text as over numbers. Pass the type you expect for convenience:
+
+```typescript
+const latest = await DB.table('orders').max<string>('created_at')
+```
+
+All four accept a qualified column or a field object, same as everywhere else:
+
+```typescript
+await DB.table('employees')
+  .innerJoin('sales', 'employees.id', 'sales.employee_id')
+  .sum({ name: 'amount', table: 'sales' })
+```
+
+For a value **per group**, these scalars are the wrong tool — ask for the aggregate in `select()` and read the rows back, as shown in [Grouping — GROUP BY & HAVING](#grouping--group-by--having).
 
 ---
 
@@ -1064,7 +1102,7 @@ const adults = await User.where('active', 1)
   .get()
 ```
 
-The full `where*` / `orWhere*` API, `select()`, `orderBy()`, `orderByDesc()`, `limit()`, `offset()`, `groupBy()`, `distinct()`, and `whereColumn()` are all supported.
+The full `where*` / `orWhere*` API, `select()`, `orderBy()`, `orderByDesc()`, `limit()`, `offset()`, `groupBy()`, `having()`, `orHaving()`, `distinct()`, and `whereColumn()` are all supported.
 
 **Counting and paginating** work exactly like on `DataTable`, but field names are resolved against the entity's columns and `paginate()` returns hydrated entity instances (loading any `with()` relations):
 
@@ -1084,6 +1122,59 @@ console.log(page.data)        // User[] (page 2), each with .country loaded
 ```
 
 `paginate()` returns the same metadata shape described in [Paginating — paginate()](#paginating--paginate), with `data` typed as `T[]`.
+
+**Aggregates** work the same way, and this is the point of asking the entity instead of the table: they apply the entity's global scopes (registered from `booted()` with `addGlobalScope`), so they answer *"the total over the rows you are allowed to see"* rather than *"the total in the table"*.
+
+```typescript
+const revenue = await Order.sum('amount')                    // number
+const ticket = await Order.avg('amount')                     // number | null
+const firstOrder = await Order.min<Date>('createdAt')        // Date | null
+
+// Scope plus the query's own conditions
+const paid = await Order.where('paid', true).sum('amount')
+
+// Same aggregate, scope lifted
+const everything = await Order.withoutGlobalScopes().sum('amount')
+```
+
+Field names are resolved against the entity's columns, so a property mapped to a different column name (`@Column({ columnName: 'settled_at' }) settledAt`) is aggregated by passing the **property**.
+
+---
+
+### Scoped aggregates & raw projections — toBase()
+
+`get()` hydrates every row through the entity's declared columns. That is right for a row of the table and wrong for a projection: an alias the query invented has nowhere to land, and the real columns were never selected, so this hands back an empty entity rather than a total.
+
+```typescript
+// ✗ Ranking has no `total` column — the alias is dropped on hydration
+const [row] = await Ranking.select('SUM(points) AS total').get()
+row.total  // does not exist
+```
+
+`toBase()` is the way down to the underlying `DataTable` **with the global scopes already applied**, so the rows come back raw while the scoping still holds:
+
+```typescript
+const totals = await (await Ranking.where('userId', userId).toBase())
+  .select('categoryId', 'SUM(points) AS total')
+  .groupBy('categoryId')
+  .get()
+
+totals[0].total  // as the driver returned it
+```
+
+It is `async` because a global scope may be asynchronous — one that reads the current session, for instance — so the scopes can only be folded in by awaiting. The `DataTable` you get back is the query's own: keep chaining on it, and do not reuse the `EntityQuery` afterwards.
+
+For a scalar you do not need it — `sum()` / `avg()` / `min()` / `max()` / `count()` already return one. Use `toBase()` when the result is a **set of rows** that is not a set of entities: grouped aggregates above all.
+
+Scoped `HAVING` needs no escape hatch, since `count()` counts groups:
+
+```typescript
+// How many categories has this player scored more than 100 points in?
+const categories = await Ranking.where('userId', userId)
+  .groupBy('categoryId')
+  .having('SUM(points)', '>', 100)
+  .count()
+```
 
 ---
 

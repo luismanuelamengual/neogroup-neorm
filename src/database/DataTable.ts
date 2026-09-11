@@ -52,17 +52,10 @@ export class DataTable {
    *   await DB.table('users').distinct().count('country')       // COUNT(DISTINCT country)
    */
   public async count(column: Field = '*'): Promise<number> {
-    const columnExpr = typeof column === 'string' ? column : `${column.table ? `${column.table}.` : ''}${column.name}`
+    const columnExpr = DataTable.columnExpression(column)
     const useDistinct = this._distinct && columnExpr !== '*'
     const aggregate = useDistinct ? `COUNT(DISTINCT ${columnExpr})` : `COUNT(${columnExpr})`
-    const query = new SelectQuery()
-      .setTable(this._table)
-      .setSelectFields([`${aggregate} AS aggregate`])
-      .setWhereConditions(this._whereConditions)
-      .setGroupByFields(this._groupByFields)
-      .setHavingConditions(this._havingConditions)
-      .setJoins(this._joins)
-    const records = await this.source.query(query)
+    const records = await this.aggregateRows(aggregate)
 
     // With GROUP BY the engine returns one row per group → count the groups.
     if (this._groupByFields && this._groupByFields.length > 0) {
@@ -70,6 +63,46 @@ export class DataTable {
     }
 
     return records.length > 0 ? Number(records[0].aggregate) : 0
+  }
+
+  /**
+   * SUM of a column over the current query, as a number. An empty result set
+   * sums to 0 — there is no "sum of nothing" worth distinguishing from zero,
+   * and the same choice Eloquent's `sum()` makes.
+   *
+   *   await DB.table('orders').where('paid', 1).sum('amount')   // → number
+   */
+  public async sum(column: Field): Promise<number> {
+    const value = await this.aggregate('SUM', column)
+
+    return value == null ? 0 : Number(value)
+  }
+
+  /**
+   * AVG of a column over the current query, or null when nothing matched.
+   * Unlike a sum, an average of no rows is genuinely undefined rather than 0.
+   */
+  public async avg(column: Field): Promise<number | null> {
+    const value = await this.aggregate('AVG', column)
+
+    return value == null ? null : Number(value)
+  }
+
+  /**
+   * MIN of a column over the current query, or null when nothing matched.
+   *
+   * The value is returned exactly as the driver produced it, with no cast
+   * applied — `MIN` is just as useful over dates and strings as over numbers,
+   * and PostgreSQL and SQLite disagree on how they hand a timestamp back. The
+   * type parameter is a convenience for the caller, not a conversion.
+   */
+  public async min<V = any>(column: Field): Promise<V | null> {
+    return (await this.aggregate('MIN', column)) ?? null
+  }
+
+  /** MAX of a column over the current query, or null when nothing matched. See `min`. */
+  public async max<V = any>(column: Field): Promise<V | null> {
+    return (await this.aggregate('MAX', column)) ?? null
   }
 
   /**
@@ -161,6 +194,44 @@ export class DataTable {
       .setUpdateColumns(update)
 
     return await this.source.execute(query)
+  }
+
+  /** Renders a Field as the SQL expression an aggregate can wrap. */
+  private static columnExpression(column: Field): string {
+    return typeof column === 'string' ? column : `${column.table ? `${column.table}.` : ''}${column.name}`
+  }
+
+  /**
+   * Runs `<FUNCTION>(<column>) AS aggregate` over the current query, ignoring
+   * any limit/offset/order-by clause but honouring the where conditions, joins,
+   * group-by and having. Returns every row the engine produced, which is one
+   * row unless the query groups.
+   */
+  private async aggregateRows(expression: string): Promise<Array<DataSet>> {
+    const query = new SelectQuery()
+      .setTable(this._table)
+      .setSelectFields([`${expression} AS aggregate`])
+      .setWhereConditions(this._whereConditions)
+      .setGroupByFields(this._groupByFields)
+      .setHavingConditions(this._havingConditions)
+      .setJoins(this._joins)
+
+    return this.source.query(query)
+  }
+
+  /**
+   * Scalar aggregate over the current query: the raw value of the first row, or
+   * null when nothing matched.
+   *
+   * A grouped query has no single scalar to report — the engine returns one row
+   * per group — so this takes the first group's value, the same way Eloquent's
+   * aggregates do. Use `select()` with the aggregate and read the rows back
+   * when you want a value per group.
+   */
+  private async aggregate(func: string, column: Field): Promise<any> {
+    const records = await this.aggregateRows(`${func}(${DataTable.columnExpression(column)})`)
+
+    return records.length > 0 ? records[0].aggregate : null
   }
 
   private createSelectQuery(): SelectQuery {

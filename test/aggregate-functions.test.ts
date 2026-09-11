@@ -609,4 +609,64 @@ describe('Aggregate Functions', () => {
       expect(rows[0].max_sale).toBe(5000)
     })
   })
+
+  // ─── 9. Terminales escalares: sum() / avg() / min() / max() ───────────────
+  // Los agregados de arriba se piden vía select() y devuelven filas; estos
+  // devuelven directamente el valor, como count().
+
+  describe('Terminales escalares', () => {
+    it('sum() devuelve el total como number', async () => {
+      expect(await source.table('employees').sum('salary')).toBe(405000)
+    })
+
+    it('sum() respeta WHERE', async () => {
+      expect(await source.table('employees').where('active', 1).sum('salary')).toBe(285000)
+    })
+
+    it('sum() de un conjunto vacío es 0, no null', async () => {
+      expect(await source.table('employees').where('salary', '>', 1000000).sum('salary')).toBe(0)
+    })
+
+    it('avg() devuelve el promedio', async () => {
+      expect(await source.table('employees').sum('salary')).toBe(405000)
+      expect(await source.table('employees').avg('salary')).toBe(405000 / 6)
+    })
+
+    it('avg() de un conjunto vacío es null: un promedio de nada no es 0', async () => {
+      expect(await source.table('employees').where('salary', '>', 1000000).avg('salary')).toBeNull()
+    })
+
+    it('min() y max() devuelven los extremos', async () => {
+      expect(await source.table('employees').min('salary')).toBe(50000)
+      expect(await source.table('employees').max('salary')).toBe(90000)
+    })
+
+    it('min() y max() de un conjunto vacío son null', async () => {
+      expect(await source.table('employees').where('salary', '>', 1000000).min('salary')).toBeNull()
+      expect(await source.table('employees').where('salary', '>', 1000000).max('salary')).toBeNull()
+    })
+
+    it('acepta un campo calificado tabla.campo', async () => {
+      const total = await source
+        .table('employees')
+        .innerJoin('sales', 'employees.id', 'sales.employee_id')
+        .sum('sales.amount')
+
+      expect(total).toBeGreaterThan(0)
+    })
+
+    it('acepta un campo como objeto { name, table }', async () => {
+      const total = await source
+        .table('employees')
+        .innerJoin('sales', 'employees.id', 'sales.employee_id')
+        .sum({ name: 'amount', table: 'sales' })
+
+      expect(total).toBeGreaterThan(0)
+    })
+
+    it('min() devuelve el valor sin castear, útil sobre texto y fechas', async () => {
+      expect(await source.table('employees').min<string>('name')).toBe('Alice')
+      expect(await source.table('employees').max<string>('name')).toBe('Frank')
+    })
+  })
 })

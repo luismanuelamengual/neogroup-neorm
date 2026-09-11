@@ -136,6 +136,49 @@ export abstract class BaseEntity {
     return this._repo().paginate(perPage, page)
   }
 
+  /**
+   * SUM of a column across every row this entity's global scopes let you see.
+   * Sums to 0 over an empty result set.
+   *
+   *   await Order.sum('amount')
+   *   await Order.where('paid', true).sum('amount')
+   */
+  static async sum<T extends BaseEntity>(this: EntityClass<T>, column: Field): Promise<number> {
+    return this._repo().sum(column)
+  }
+
+  /** AVG of a column, scoped. Null when nothing matched. */
+  static async avg<T extends BaseEntity>(this: EntityClass<T>, column: Field): Promise<number | null> {
+    return this._repo().avg(column)
+  }
+
+  /**
+   * MIN of a column, scoped and uncast (see `DataTable.min`). Null when nothing
+   * matched.
+   *
+   * The value type comes first among the type parameters so it can be given
+   * explicitly — `Payment.min<Date>('settledAt')` — while the entity type stays
+   * inferred from the call.
+   */
+  static async min<V = any, T extends BaseEntity = BaseEntity>(this: EntityClass<T>, column: Field): Promise<V | null> {
+    return this._repo().min<V>(column)
+  }
+
+  /** MAX of a column, scoped and uncast (see `DataTable.min`). Null when nothing matched. */
+  static async max<V = any, T extends BaseEntity = BaseEntity>(this: EntityClass<T>, column: Field): Promise<V | null> {
+    return this._repo().max<V>(column)
+  }
+
+  /**
+   * Drops down to the underlying DataTable with this entity's global scopes
+   * already applied, so rows come back raw instead of hydrated. For grouped
+   * aggregates and other projections that are not a row of the table — see
+   * `EntityQuery.toBase`.
+   */
+  static async toBase<T extends BaseEntity>(this: EntityClass<T>): Promise<DataTable> {
+    return this._repo().toBase()
+  }
+
   static where<T extends BaseEntity>(this: EntityClass<T>, callback: (group: ConditionGroup) => void): EntityQuery<T>
   static where<T extends BaseEntity>(this: EntityClass<T>, condition: Condition): EntityQuery<T>
   static where<T extends BaseEntity>(this: EntityClass<T>, field: Field, value: any): EntityQuery<T>
@@ -213,6 +256,29 @@ export abstract class BaseEntity {
 
   static groupBy<T extends BaseEntity>(this: EntityClass<T>, ...fields: Field[]): EntityQuery<T> {
     return this._repo().groupBy(...fields)
+  }
+
+  static having<T extends BaseEntity>(this: EntityClass<T>, condition: Condition): EntityQuery<T>
+  static having<T extends BaseEntity>(this: EntityClass<T>, field: Field, value: any): EntityQuery<T>
+  static having<T extends BaseEntity>(this: EntityClass<T>, field: Field, operator: string, value: any): EntityQuery<T>
+  static having(this: any, ...args: any[]): EntityQuery<any> {
+    return this._repo().having(...args)
+  }
+
+  static orHaving<T extends BaseEntity>(this: EntityClass<T>, condition: Condition): EntityQuery<T>
+  static orHaving<T extends BaseEntity>(this: EntityClass<T>, field: Field, value: any): EntityQuery<T>
+  static orHaving<T extends BaseEntity>(
+    this: EntityClass<T>,
+    field: Field,
+    operator: string,
+    value: any
+  ): EntityQuery<T>
+  static orHaving(this: any, ...args: any[]): EntityQuery<any> {
+    return this._repo().orHaving(...args)
+  }
+
+  static distinct<T extends BaseEntity>(this: EntityClass<T>): EntityQuery<T> {
+    return this._repo().distinct()
   }
 
   static limit<T extends BaseEntity>(this: EntityClass<T>, value: number): EntityQuery<T> {
